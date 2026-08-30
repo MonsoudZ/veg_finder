@@ -48,6 +48,7 @@ final class RestaurantSearchTests: XCTestCase {
         XCTAssertEqual(catalog.restaurants[0].menuItems[1].modificationNote, "Remove cheese")
         XCTAssertEqual(catalog.restaurants[0].coverageStatus, .complete)
         XCTAssertEqual(catalog.restaurants[0].coverageScope, "All qualifying dishes")
+        XCTAssertNotNil(catalog.restaurants[0].lastCheckedAt)
     }
 
     private var sampleRestaurant: Restaurant {
@@ -90,6 +91,7 @@ final class RestaurantSearchTests: XCTestCase {
             "longitude": -104.980,
             "verifiedAt": "2026-08-29T12:00:00.000Z",
             "auditedAt": "2026-08-29T12:00:00.000Z",
+            "lastCheckedAt": "2026-08-30T12:00:00.000Z",
             "coverageStatus": "Complete",
             "coverageScope": "All qualifying dishes",
             "menuURL": "https://example.com/menu",

@@ -2,34 +2,10 @@ import { createHash } from "node:crypto";
 import { loadBrowserSource } from "./browser-source.js";
 
 export async function checkMenus(
-  database,
+  store,
   { fetchImpl = fetch, browserFetchImpl = loadBrowserSource, logger = console } = {}
 ) {
-  const restaurants = database.prepare(`
-    SELECT id, name, COALESCE(check_url, menu_url) AS check_url, source_hash,
-           extraction_mode
-    FROM restaurants
-    ORDER BY name COLLATE NOCASE
-  `).all();
-  const markChecked = database.prepare(`
-    UPDATE restaurants
-    SET last_checked_at = ?, source_hash = ?,
-        review_required = CASE
-          WHEN source_hash IS NOT NULL AND source_hash <> ? THEN 1
-          ELSE review_required
-        END,
-        coverage_status = CASE
-          WHEN source_hash IS NOT NULL AND source_hash <> ? THEN 'Needs review'
-          ELSE coverage_status
-        END,
-        check_error = NULL
-    WHERE id = ?
-  `);
-  const markFailed = database.prepare(`
-    UPDATE restaurants
-    SET last_checked_at = ?, check_error = ?, coverage_status = 'Needs review'
-    WHERE id = ?
-  `);
+  const restaurants = await store.listCheckTargets();
 
   const results = [];
   for (const restaurant of restaurants) {
@@ -40,13 +16,19 @@ export async function checkMenus(
         : await loadHTTPSource(fetchImpl, restaurant.check_url);
       const source = normalize(sourceText);
       const hash = createHash("sha256").update(source).digest("hex");
-      markChecked.run(checkedAt, hash, hash, hash, restaurant.id);
       const changed = Boolean(restaurant.source_hash && restaurant.source_hash !== hash);
+      await store.recordCheckSuccess({
+        restaurantID: restaurant.id,
+        checkedAt,
+        hash,
+        normalizedSource: source,
+        changed
+      });
       logger.log(`${changed ? "CHANGED" : "OK"} ${restaurant.name}`);
       results.push({ id: restaurant.id, status: changed ? "changed" : "ok" });
     } catch (error) {
       const message = String(error.message ?? error);
-      markFailed.run(checkedAt, message, restaurant.id);
+      await store.recordCheckFailure({ restaurantID: restaurant.id, checkedAt, error: message });
       logger.error(`FAILED ${restaurant.name}: ${message}`);
       results.push({ id: restaurant.id, status: "failed", error: message });
     }

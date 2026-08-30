@@ -1,6 +1,5 @@
 import { openStore } from "./store.js";
 
 const store = await openStore();
-await store.importSeed();
 await store.close();
-console.log("Catalog seed imported.");
+console.log("Database migrations applied.");

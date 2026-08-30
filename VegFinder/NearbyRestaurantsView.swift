@@ -100,7 +100,7 @@ struct NearbyRestaurantsView: View {
     private var catalogState: some View {
         switch catalog.phase {
         case .idle, .loading:
-            ProgressView("Loading verified menus…")
+            ProgressView("Loading audited menus…")
                 .frame(maxWidth: .infinity)
                 .padding(32)
         case let .failed(message):
@@ -246,8 +246,4 @@ struct DietaryBadge: View {
         case .vegetarian, .vegetarianWithModification: .orange
         }
     }
-}
-
-#Preview {
-    NearbyRestaurantsView()
 }

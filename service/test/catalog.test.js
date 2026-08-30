@@ -4,14 +4,14 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { checkMenus } from "../src/checker.js";
-import { catalogFromDatabase, importSeed, openDatabase } from "../src/database.js";
+import { openSQLiteStore } from "../src/database.js";
 
-test("seed publishes every stored menu item and modification note", () => {
+test("seed publishes every stored menu item and modification note", async () => {
   const directory = mkdtempSync(join(tmpdir(), "vegfinder-test-"));
-  const database = openDatabase(join(directory, "catalog.sqlite"));
-  importSeed(database);
+  const store = openSQLiteStore(join(directory, "catalog.sqlite"));
+  await store.importSeed();
 
-  const catalog = catalogFromDatabase(database);
+  const catalog = await store.getCatalog();
   assert.equal(catalog.restaurants.length, 10);
   assert.ok(catalog.restaurants.every((restaurant) => restaurant.menuItems.length > 0));
   assert.equal(catalog.restaurants.flatMap((restaurant) => restaurant.menuItems).length, 128);
@@ -24,14 +24,18 @@ test("seed publishes every stored menu item and modification note", () => {
     .filter((item) => item.dietaryStatus.includes("made"));
   assert.ok(modifiedItems.length > 0);
   assert.ok(modifiedItems.every((item) => item.modificationNote?.length > 0));
-  database.close();
+  const versionCount = store.database.prepare(
+    "SELECT COUNT(*) AS count FROM menu_item_versions"
+  ).get().count;
+  assert.equal(versionCount, 128);
+  await store.close();
 });
 
 test("menu checker flags a changed official source for review", async () => {
   const directory = mkdtempSync(join(tmpdir(), "vegfinder-check-test-"));
-  const database = openDatabase(join(directory, "catalog.sqlite"));
-  importSeed(database);
-  database.prepare("UPDATE restaurants SET extraction_mode = 'browser_required' WHERE name = 'Jelly Cafe'").run();
+  const store = openSQLiteStore(join(directory, "catalog.sqlite"));
+  await store.importSeed();
+  store.database.prepare("UPDATE restaurants SET extraction_mode = 'browser_required' WHERE name = 'Jelly Cafe'").run();
   const logger = { log() {}, error() {} };
   let browserChecks = 0;
   const browserFetchImpl = async () => {
@@ -39,12 +43,12 @@ test("menu checker flags a changed official source for review", async () => {
     return "<main>Browser menu version</main>";
   };
 
-  await checkMenus(database, {
+  await checkMenus(store, {
     fetchImpl: async () => new Response("<main>Menu version one</main>"),
     browserFetchImpl,
     logger
   });
-  await checkMenus(database, {
+  await checkMenus(store, {
     fetchImpl: async () => new Response("<main>Menu version two</main>"),
     browserFetchImpl: async () => {
       browserChecks += 1;
@@ -53,12 +57,14 @@ test("menu checker flags a changed official source for review", async () => {
     logger
   });
 
-  const row = database.prepare(`
+  const row = store.database.prepare(`
     SELECT COUNT(*) AS count FROM restaurants WHERE review_required = 1
   `).get();
   assert.equal(row.count, 10);
   assert.equal(browserChecks, 2);
-  const catalog = catalogFromDatabase(database);
+  const catalog = await store.getCatalog();
   assert.ok(catalog.restaurants.every((restaurant) => restaurant.coverageStatus === "Needs review"));
-  database.close();
+  assert.equal(store.database.prepare("SELECT COUNT(*) AS count FROM menu_check_runs").get().count, 20);
+  assert.equal(store.database.prepare("SELECT COUNT(*) AS count FROM menu_source_snapshots").get().count, 20);
+  await store.close();
 });

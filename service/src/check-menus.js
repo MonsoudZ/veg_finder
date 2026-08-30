@@ -1,11 +1,11 @@
 import { checkMenus } from "./checker.js";
-import { ensureSeeded, openDatabase } from "./database.js";
+import { openStore } from "./store.js";
 
-const database = openDatabase(process.env.VEGFINDER_DATABASE_PATH);
-ensureSeeded(database);
-const results = await checkMenus(database);
-database.close();
+const store = await openStore();
+await store.ensureSeeded();
+const results = await store.runMenuCheckExclusive(() => checkMenus(store));
+await store.close();
 
-if (results.some((result) => result.status === "failed")) {
+if (results?.some((result) => result.status === "failed")) {
   process.exitCode = 1;
 }

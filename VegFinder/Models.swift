@@ -40,6 +40,13 @@ enum DietaryFilter: String, CaseIterable, Identifiable {
 enum CatalogCoverageStatus: String, Codable, Hashable {
     case complete = "Complete"
     case needsReview = "Needs review"
+
+    var displayName: String {
+        switch self {
+        case .complete: "Official menu audited"
+        case .needsReview: "Needs review"
+        }
+    }
 }
 
 struct MenuItem: Identifiable, Codable, Hashable {
@@ -80,10 +87,11 @@ struct Restaurant: Identifiable, Codable, Hashable {
     let coverageStatus: CatalogCoverageStatus
     let coverageScope: String
     let auditedAt: Date
+    let lastCheckedAt: Date?
 
     private enum CodingKeys: String, CodingKey {
         case id, name, neighborhood, address, latitude, longitude, menuItems
-        case verifiedAt, menuURL, coverageStatus, coverageScope, auditedAt
+        case verifiedAt, menuURL, coverageStatus, coverageScope, auditedAt, lastCheckedAt
     }
 
     init(
@@ -98,7 +106,8 @@ struct Restaurant: Identifiable, Codable, Hashable {
         menuURL: URL? = nil,
         coverageStatus: CatalogCoverageStatus = .needsReview,
         coverageScope: String = "Qualifying items found on the official menu",
-        auditedAt: Date? = nil
+        auditedAt: Date? = nil,
+        lastCheckedAt: Date? = nil
     ) {
         self.id = id
         self.name = name
@@ -112,6 +121,7 @@ struct Restaurant: Identifiable, Codable, Hashable {
         self.coverageStatus = coverageStatus
         self.coverageScope = coverageScope
         self.auditedAt = auditedAt ?? verifiedAt
+        self.lastCheckedAt = lastCheckedAt
     }
 
     init(from decoder: Decoder) throws {
@@ -129,6 +139,7 @@ struct Restaurant: Identifiable, Codable, Hashable {
         coverageScope = try values.decodeIfPresent(String.self, forKey: .coverageScope)
             ?? "Qualifying items found on the official menu"
         auditedAt = try values.decodeIfPresent(Date.self, forKey: .auditedAt) ?? verifiedAt
+        lastCheckedAt = try values.decodeIfPresent(Date.self, forKey: .lastCheckedAt)
     }
 
     var location: CLLocation {

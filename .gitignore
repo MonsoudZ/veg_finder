@@ -4,3 +4,7 @@ service/data/*.sqlite-shm
 service/data/*.sqlite-wal
 xcuserdata/
 DerivedData/
+node_modules/
+.env
+.env.*
+!.env.example

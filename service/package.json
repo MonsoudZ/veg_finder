@@ -4,11 +4,15 @@
   "type": "module",
   "scripts": {
     "start": "node src/server.js",
+    "migrate": "node src/migrate.js",
     "seed": "node src/seed.js",
     "check": "node src/check-menus.js",
     "test": "node --test"
   },
   "engines": {
     "node": ">=22.5"
+  },
+  "dependencies": {
+    "pg": "^8.23.0"
   }
 }

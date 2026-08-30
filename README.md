@@ -10,6 +10,8 @@ The first version intentionally does only three things:
 
 Restaurant and menu records are loaded from the catalog API; none are compiled into the iPhone app. The app caches the last successful catalog so a temporary outage does not erase already-loaded results. The initial catalog contains 10 Capitol Hill restaurants and links every record to the restaurant's own menu or ordering page.
 
+The production service uses PostgreSQL for catalog data, item-version history, source snapshots, and menu-check history. SQLite remains the zero-setup local and test database.
+
 ## Run
 
 Open `VegFinder.xcodeproj` in Xcode, select an iPhone simulator, and run the `VegFinder` scheme.

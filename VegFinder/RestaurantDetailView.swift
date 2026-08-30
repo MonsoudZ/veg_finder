@@ -43,19 +43,24 @@ struct RestaurantDetailView: View {
                 }
             }
 
-            Section("Menu confidence") {
-                LabeledContent("Catalog coverage") {
-                    Label(restaurant.coverageStatus.rawValue, systemImage: coverageIcon)
+            Section("Menu verification") {
+                LabeledContent("Status") {
+                    Label(restaurant.coverageStatus.displayName, systemImage: coverageIcon)
                         .foregroundStyle(restaurant.coverageStatus == .complete ? .green : .orange)
                 }
                 Text(restaurant.coverageScope)
                     .font(.footnote)
                     .foregroundStyle(.secondary)
-                LabeledContent("Full-menu audit") {
+                LabeledContent("Menu audited") {
                     Text(restaurant.auditedAt, format: .dateTime.month().day().year())
                 }
-                LabeledContent("Last checked") {
-                    Text(restaurant.verifiedAt, format: .dateTime.month().day().year())
+                LabeledContent("Source checked") {
+                    if let lastCheckedAt = restaurant.lastCheckedAt {
+                        Text(lastCheckedAt, format: .dateTime.month().day().year())
+                    } else {
+                        Text("Not checked yet")
+                            .foregroundStyle(.secondary)
+                    }
                 }
                 if let menuURL = restaurant.menuURL {
                     Link(destination: menuURL) {
