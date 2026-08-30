@@ -1,0 +1,253 @@
+import CoreLocation
+import SwiftUI
+
+struct NearbyRestaurantsView: View {
+    @StateObject private var locationManager = LocationManager()
+    @StateObject private var catalog = RestaurantCatalog()
+    @State private var filter: DietaryFilter = .both
+
+    private var origin: CLLocation {
+        locationManager.location ?? RestaurantSearch.pilotCenter
+    }
+
+    private var results: [RestaurantResult] {
+        RestaurantSearch.results(
+            restaurants: catalog.restaurants,
+            filter: filter,
+            origin: origin
+        )
+    }
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                LazyVStack(spacing: 14) {
+                    verificationNotice
+
+                    if catalog.restaurants.isEmpty {
+                        catalogState
+                    }
+
+                    ForEach(results) { result in
+                        NavigationLink(value: result.restaurant) {
+                            RestaurantCard(result: result, filter: filter)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+                .padding(.horizontal, 16)
+                .padding(.bottom, 24)
+            }
+            .background(Color(.systemGroupedBackground))
+            .navigationTitle("Eat nearby")
+            .navigationDestination(for: Restaurant.self) { restaurant in
+                RestaurantDetailView(
+                    restaurant: restaurant,
+                    items: restaurant.matchingItems(for: filter),
+                    distanceMeters: origin.distance(from: restaurant.location)
+                )
+            }
+            .safeAreaInset(edge: .top) {
+                filterBar
+            }
+            .task {
+                locationManager.requestLocation()
+                await catalog.load()
+            }
+            .refreshable {
+                await catalog.refresh()
+            }
+        }
+        .tint(.green)
+    }
+
+    private var filterBar: some View {
+        VStack(spacing: 8) {
+            Picker("Diet", selection: $filter) {
+                ForEach(DietaryFilter.allCases) { option in
+                    Text(option.rawValue).tag(option)
+                }
+            }
+            .pickerStyle(.segmented)
+
+            HStack(spacing: 5) {
+                Image(systemName: locationIcon)
+                Text(locationDescription)
+                Spacer()
+                Text("\(results.count) places")
+            }
+            .font(.caption)
+            .foregroundStyle(.secondary)
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
+        .background(.bar)
+    }
+
+    private var verificationNotice: some View {
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: "checkmark.seal.fill")
+                .foregroundStyle(.green)
+            Text(verificationText)
+                .font(.footnote)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .padding(12)
+        .background(.green.opacity(0.10), in: RoundedRectangle(cornerRadius: 12))
+    }
+
+    @ViewBuilder
+    private var catalogState: some View {
+        switch catalog.phase {
+        case .idle, .loading:
+            ProgressView("Loading verified menus…")
+                .frame(maxWidth: .infinity)
+                .padding(32)
+        case let .failed(message):
+            ContentUnavailableView {
+                Label("Menus unavailable", systemImage: "wifi.exclamationmark")
+            } description: {
+                Text(message)
+            } actions: {
+                Button("Try again") {
+                    Task { await catalog.refresh() }
+                }
+            }
+        case .ready:
+            EmptyView()
+        }
+    }
+
+    private var verificationText: String {
+        guard let generatedAt = catalog.generatedAt else {
+            return "Capitol Hill pilot · loading the verified menu catalog."
+        }
+        return "Catalog refreshed \(generatedAt.formatted(date: .abbreviated, time: .shortened)). Availability can change; tap to verify."
+    }
+
+    private var locationIcon: String {
+        locationManager.location == nil ? "mappin.and.ellipse" : "location.fill"
+    }
+
+    private var locationDescription: String {
+        if locationManager.location != nil {
+            return "Sorted from your location"
+        }
+        if locationManager.authorizationStatus == .denied {
+            return "Using Capitol Hill center · location denied"
+        }
+        return "Using Capitol Hill center"
+    }
+}
+
+private struct RestaurantCard: View {
+    let result: RestaurantResult
+    let filter: DietaryFilter
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .firstTextBaseline) {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(result.restaurant.name)
+                        .font(.headline)
+                    Text("\(result.restaurant.neighborhood) · \(distanceText)")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
+                Spacer()
+                Image(systemName: "chevron.right")
+                    .font(.caption.bold())
+                    .foregroundStyle(.tertiary)
+            }
+
+            Text(summaryText)
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.green)
+
+            VStack(alignment: .leading, spacing: 8) {
+                ForEach(result.items.prefix(3)) { item in
+                    HStack(spacing: 8) {
+                        DietaryBadge(status: item.dietaryStatus)
+                        Text(item.name)
+                            .font(.subheadline)
+                            .lineLimit(1)
+                        Spacer(minLength: 4)
+                        Text(item.price)
+                            .font(.subheadline.monospacedDigit())
+                            .foregroundStyle(.secondary)
+                    }
+                }
+
+                if result.items.count > 3 {
+                    Label(
+                        "+\(result.items.count - 3) more qualifying \(result.items.count - 3 == 1 ? "item" : "items")",
+                        systemImage: "arrow.right.circle.fill"
+                    )
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.green)
+                }
+            }
+        }
+        .padding(16)
+        .background(.background, in: RoundedRectangle(cornerRadius: 18))
+        .overlay {
+            RoundedRectangle(cornerRadius: 18)
+                .stroke(.quaternary, lineWidth: 0.5)
+        }
+    }
+
+    private var distanceText: String {
+        let miles = result.distanceMeters / 1_609.344
+        return miles < 0.1 ? "< 0.1 mi" : String(format: "%.1f mi", miles)
+    }
+
+    private var summaryText: String {
+        let asServed = result.items.filter { !$0.dietaryStatus.requiresModification }.count
+        let modified = result.items.count - asServed
+        if filter == .both {
+            let firstPart = "\(asServed) as served"
+            return modified > 0 ? "\(firstPart) · \(modified) with modification" : firstPart
+        }
+        let diet = filter == .vegan ? "vegan" : "vegetarian"
+        let firstPart = "\(asServed) \(diet)"
+        guard modified > 0 else { return firstPart }
+        return "\(firstPart) · \(modified) can be made \(diet)"
+    }
+}
+
+struct DietaryBadge: View {
+    let status: DietaryStatus
+
+    var body: some View {
+        Text(label)
+            .font(.caption2.bold())
+            .foregroundStyle(color)
+            .padding(.horizontal, 7)
+            .frame(height: 20)
+            .background(
+                color.opacity(0.12),
+                in: Capsule()
+            )
+            .accessibilityLabel(status.rawValue)
+    }
+
+    private var label: String {
+        switch status {
+        case .vegan: "Vegan"
+        case .vegetarian: "Veg"
+        case .veganWithModification: "Vegan · modify"
+        case .vegetarianWithModification: "Veg · modify"
+        }
+    }
+
+    private var color: Color {
+        switch status {
+        case .vegan, .veganWithModification: .green
+        case .vegetarian, .vegetarianWithModification: .orange
+        }
+    }
+}
+
+#Preview {
+    NearbyRestaurantsView()
+}

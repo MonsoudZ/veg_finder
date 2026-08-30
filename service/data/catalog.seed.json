@@ -1,0 +1,191 @@
+{
+  "generatedAt": "2026-08-30T00:00:00Z",
+  "restaurants": [
+    {
+      "id":"00000000-0000-4000-8000-000000000001","name":"City, O' City","neighborhood":"Capitol Hill","address":"206 E 13th Ave, Denver, CO 80203","latitude":39.7366638,"longitude":-104.9844728,
+      "verifiedAt":"2026-08-30T00:00:00Z","auditedAt":"2026-08-30T00:00:00Z","coverageStatus":"Complete","coverageScope":"All named dishes on the official mains menu; beverages and standalone add-ons excluded.","menuURL":"https://www.cityocitydenver.com/mains","extractionMode":"change_detection",
+      "menuItems":[
+        {"id":"10000001-0000-4000-8000-000000000001","name":"Caesar","description":"Caesar salad.","price":"$8–$13","dietaryStatus":"Vegan","sourceEvidence":"Official menu says everything is vegan unless dairy mozzarella or egg is chosen"},
+        {"id":"10000001-0000-4000-8000-000000000002","name":"Avocado Club Salad","description":"Avocado club-inspired entrée salad.","price":"$17","dietaryStatus":"Vegan","sourceEvidence":"Official all-vegan-default menu statement"},
+        {"id":"10000001-0000-4000-8000-000000000003","name":"Spiced Squash Soup","description":"Seasonal spiced squash soup.","price":"$5–$8","dietaryStatus":"Vegan","sourceEvidence":"Official all-vegan-default menu statement"},
+        {"id":"10000001-0000-4000-8000-000000000004","name":"Chicken & Waffles","description":"Plant-based chicken and waffles.","price":"$9–$16","dietaryStatus":"Vegan","sourceEvidence":"Official all-vegan-default menu statement"},
+        {"id":"10000001-0000-4000-8000-000000000005","name":"BBQ Bowl","description":"Plant-based barbecue bowl.","price":"$17","dietaryStatus":"Vegan","sourceEvidence":"Official all-vegan-default menu statement"},
+        {"id":"10000001-0000-4000-8000-000000000006","name":"Lion's Mane Katsu","description":"Japanese curry with lion's-mane katsu.","price":"$17","dietaryStatus":"Vegan","sourceEvidence":"Official all-vegan-default menu statement"},
+        {"id":"10000001-0000-4000-8000-000000000007","name":"Fromage Pizza","description":"Cheese-focused house pizza.","price":"$21","dietaryStatus":"Can be made vegan","modificationNote":"Choose vegan mozzarella or cashew ricotta.","sourceEvidence":"Official cheese choices"},
+        {"id":"10000001-0000-4000-8000-000000000008","name":"Caprese Pizza","description":"Caprese-style pizza.","price":"$24","dietaryStatus":"Can be made vegan","modificationNote":"Choose vegan mozzarella or cashew ricotta.","sourceEvidence":"Official cheese choices"},
+        {"id":"10000001-0000-4000-8000-000000000009","name":"Sausage and Pesto Pizza","description":"Plant-based sausage and pesto pizza.","price":"$24","dietaryStatus":"Can be made vegan","modificationNote":"Choose vegan mozzarella or cashew ricotta.","sourceEvidence":"Official cheese choices"},
+        {"id":"10000001-0000-4000-8000-000000000010","name":"Buffalo Chicken Pizza","description":"Plant-based buffalo chicken pizza.","price":"$24","dietaryStatus":"Can be made vegan","modificationNote":"Choose vegan mozzarella or cashew ricotta.","sourceEvidence":"Official cheese choices"},
+        {"id":"10000001-0000-4000-8000-000000000011","name":"The Veg Pizza","description":"Tomato, onion, artichoke, poblano, spinach, and olives.","price":"$24","dietaryStatus":"Can be made vegan","modificationNote":"Choose vegan mozzarella or cashew ricotta.","sourceEvidence":"Official cheese choices"},
+        {"id":"10000001-0000-4000-8000-000000000012","name":"Pepperoni Pizza","description":"Plant-based pepperoni pizza.","price":"$24","dietaryStatus":"Can be made vegan","modificationNote":"Choose vegan mozzarella or cashew ricotta.","sourceEvidence":"Official cheese choices"},
+        {"id":"10000001-0000-4000-8000-000000000013","name":"City O' Burger","description":"House plant-based burger.","price":"$17","dietaryStatus":"Vegan","sourceEvidence":"Official all-vegan-default menu statement"},
+        {"id":"10000001-0000-4000-8000-000000000014","name":"Churrasco Cheesesteak","description":"Plant-based churrasco cheesesteak.","price":"$17","dietaryStatus":"Vegan","sourceEvidence":"Official all-vegan-default menu statement"},
+        {"id":"10000001-0000-4000-8000-000000000015","name":"BBQ Mac Wrap","description":"BBQ protein, mac and cheese, slaw, and pickles.","price":"$17","dietaryStatus":"Vegan","sourceEvidence":"Official all-vegan-default menu statement"}
+      ]
+    },
+    {
+      "id":"00000000-0000-4000-8000-000000000002","name":"SubCulture","neighborhood":"Capitol Hill","address":"1300 Pennsylvania St, Denver, CO 80203","latitude":39.737158,"longitude":-104.9806936,
+      "verifiedAt":"2026-08-30T00:00:00Z","auditedAt":"2026-08-30T00:00:00Z","coverageStatus":"Complete","coverageScope":"All sandwiches in the official vegetarian sections plus the vegetarian breakfast burrito; beverages and add-ons excluded.","menuURL":"https://thisissubculture.com/our-menu/","extractionMode":"change_detection",
+      "menuItems":[
+        {"id":"10000002-0000-4000-8000-000000000001","name":"Woods","description":"Cold veggie sub.","price":"$11.75 half · $17.25 whole","dietaryStatus":"Vegetarian","sourceEvidence":"Official Veggie Subs section"},
+        {"id":"10000002-0000-4000-8000-000000000002","name":"Santa Clara","description":"Spinach, tomato pesto, provolone, avocado, vinaigrette.","price":"$10.95 half · $16.45 whole","dietaryStatus":"Vegetarian","sourceEvidence":"Official Veggie Subs section"},
+        {"id":"10000002-0000-4000-8000-000000000003","name":"Daisy","description":"Tempeh, BBQ sauce, slaw, and pickle.","price":"$10.95 half · $16.45 whole","dietaryStatus":"Vegetarian","sourceEvidence":"Official Veggie Subs section"},
+        {"id":"10000002-0000-4000-8000-000000000004","name":"Meltdown","description":"Warm veggie sub.","price":"$10.95 half · $16.45 whole","dietaryStatus":"Vegetarian","sourceEvidence":"Official Veggie Subs section"},
+        {"id":"10000002-0000-4000-8000-000000000005","name":"Tempeh Marinara","description":"Tempeh and marinara sub.","price":"$11.25 half · $16.45 whole","dietaryStatus":"Vegetarian","sourceEvidence":"Official Veggie Subs section"},
+        {"id":"10000002-0000-4000-8000-000000000006","name":"Roast Veggie Parm","description":"Roasted vegetables, marinara, and cheese.","price":"$11 half · $16.45 whole","dietaryStatus":"Vegetarian","sourceEvidence":"Official Veggie Subs section"},
+        {"id":"10000002-0000-4000-8000-000000000007","name":"Grove","description":"Warm veggie sub.","price":"$11.75 half · $17.20 whole","dietaryStatus":"Vegetarian","sourceEvidence":"Official Veggie Subs section"},
+        {"id":"10000002-0000-4000-8000-000000000008","name":"Alps","description":"Warm veggie sub.","price":"$11.75 half · $17.20 whole","dietaryStatus":"Vegetarian","sourceEvidence":"Official Veggie Subs section"},
+        {"id":"10000002-0000-4000-8000-000000000009","name":"Veggie Reuben","description":"Tempeh, sauerkraut, Swiss, and Thousand Island.","price":"$11.25 half · $16.45 whole","dietaryStatus":"Vegetarian","sourceEvidence":"Official Veggie Subs section"},
+        {"id":"10000002-0000-4000-8000-000000000010","name":"Bangkok","description":"Warm veggie sub.","price":"$11.25 half · $16.45 whole","dietaryStatus":"Vegetarian","sourceEvidence":"Official Veggie Subs section"},
+        {"id":"10000002-0000-4000-8000-000000000011","name":"Roma","description":"Warm veggie sub.","price":"$11.20 half · $16.45 whole","dietaryStatus":"Vegetarian","sourceEvidence":"Official Veggie Subs section"},
+        {"id":"10000002-0000-4000-8000-000000000012","name":"Sancho","description":"Warm veggie sub.","price":"$11.25 half · $16.45 whole","dietaryStatus":"Vegetarian","sourceEvidence":"Official Veggie Subs section"},
+        {"id":"10000002-0000-4000-8000-000000000013","name":"Ratatouille","description":"Warm vegetable sub.","price":"$11.25 half · $16.45 whole","dietaryStatus":"Vegetarian","sourceEvidence":"Official Veggie Subs section"},
+        {"id":"10000002-0000-4000-8000-000000000014","name":"Vegetarian Breakfast Burrito","description":"Weekend vegetarian breakfast burrito.","price":"$5.50","dietaryStatus":"Vegetarian","sourceEvidence":"Official weekend menu"}
+      ]
+    },
+    {
+      "id":"00000000-0000-4000-8000-000000000003","name":"Jelly Cafe","neighborhood":"Capitol Hill","address":"600 E 13th Ave, Denver, CO 80203","latitude":39.7367307,"longitude":-104.9797258,
+      "verifiedAt":"2026-08-30T00:00:00Z","auditedAt":"2026-08-30T00:00:00Z","coverageStatus":"Complete","coverageScope":"All named dishes marked V on Jelly's official Denver food menu; beverages, sides, kids items, and unmarked ingredient guesses excluded.","menuURL":"https://eatmorejelly.com/denver-jelly-cafe-food-menu","extractionMode":"change_detection",
+      "menuItems":[
+        {"id":"10000003-0000-4000-8000-000000000001","name":"The Boulder","description":"Mushroom, tomato, spinach, feta, eggs, toast, and potatoes.","price":"$14.50","dietaryStatus":"Vegetarian","sourceEvidence":"Marked V on official menu"},
+        {"id":"10000003-0000-4000-8000-000000000002","name":"Homemade Oatmeal","description":"Dairy-free oatmeal with brown sugar and berries.","price":"$8.50","dietaryStatus":"Vegetarian","sourceEvidence":"Marked V on official menu; not labeled vegan"},
+        {"id":"10000003-0000-4000-8000-000000000003","name":"Veggie Burrito","description":"Soy chorizo, beans, vegetables, eggs, potatoes, dairy toppings, and jackfruit chili.","price":"$14","dietaryStatus":"Vegetarian","sourceEvidence":"Marked V on official menu"},
+        {"id":"10000003-0000-4000-8000-000000000004","name":"Portobello Veggie","description":"Portobello, tomato, spinach, poached eggs, and hollandaise.","price":"$14.25","dietaryStatus":"Vegetarian","sourceEvidence":"Marked V on official menu"},
+        {"id":"10000003-0000-4000-8000-000000000005","name":"Challah French Toast","description":"Egg-battered challah with powdered sugar.","price":"$6.50 half · $13 full","dietaryStatus":"Vegetarian","sourceEvidence":"Marked V on official menu"},
+        {"id":"10000003-0000-4000-8000-000000000006","name":"Corn Flake French Toast","description":"Cornflake-crusted challah with berry compote.","price":"$7 half · $14 full","dietaryStatus":"Vegetarian","sourceEvidence":"Marked V on official menu"},
+        {"id":"10000003-0000-4000-8000-000000000007","name":"Plain Buttermilk or Gluten-Free Pancakes","description":"Pancake stack with butter and syrup.","price":"$5.50–$13","dietaryStatus":"Vegetarian","sourceEvidence":"Marked V on official menu"},
+        {"id":"10000003-0000-4000-8000-000000000008","name":"Signature Pancakes","description":"Signature-flavor pancake stack.","price":"$8+","dietaryStatus":"Can be made vegetarian","modificationNote":"Choose Lavender Blueberry or Cinnamon Roll; do not choose Bacon, Jalapeño & Sweet Corn.","sourceEvidence":"Official menu marks the category V and lists the flavor choices"},
+        {"id":"10000003-0000-4000-8000-000000000009","name":"Veggie Style Biscuit & Gravy","description":"Buttermilk biscuit with carrot-and-parsnip cream gravy.","price":"$12","dietaryStatus":"Vegetarian","sourceEvidence":"Marked V on official menu"},
+        {"id":"10000003-0000-4000-8000-000000000010","name":"Avocado Caprese","description":"Avocado, mozzarella, tomato, basil, and balsamic toast.","price":"$13.25","dietaryStatus":"Vegetarian","sourceEvidence":"Marked V on official menu"},
+        {"id":"10000003-0000-4000-8000-000000000011","name":"El Greco","description":"Avocado, cucumber, tomato, onion, feta, and olives on toast.","price":"$13.25","dietaryStatus":"Vegetarian","sourceEvidence":"Marked V on official menu"},
+        {"id":"10000003-0000-4000-8000-000000000012","name":"Egg & Everything","description":"Avocado, egg, corn, tomato, and everything seasoning on toast.","price":"$13.25","dietaryStatus":"Vegetarian","sourceEvidence":"Marked V on official menu"},
+        {"id":"10000003-0000-4000-8000-000000000013","name":"Veggie Salad","description":"Greens, portobello, vegetables, Swiss cheese, and dressing.","price":"$12.75","dietaryStatus":"Vegetarian","sourceEvidence":"Marked V on official menu"},
+        {"id":"10000003-0000-4000-8000-000000000014","name":"Veggie & Goat Cheese","description":"Portobello, vegetables, pesto, mayo, and goat cheese on a hoagie.","price":"$14","dietaryStatus":"Vegetarian","sourceEvidence":"Marked V on official menu"}
+      ]
+    },
+    {
+      "id":"00000000-0000-4000-8000-000000000004","name":"The Corner Beet","neighborhood":"Capitol Hill","address":"1401 N Ogden St, Denver, CO 80218","latitude":39.7387,"longitude":-104.976,
+      "verifiedAt":"2026-08-30T00:00:00Z","auditedAt":"2026-08-30T00:00:00Z","coverageStatus":"Complete","coverageScope":"All named dishes marked vegan plus vegan-optional dishes with explicit substitutions; beverages and add-ons excluded.","menuURL":"https://www.cornerbeet.com/menu","extractionMode":"change_detection",
+      "menuItems":[
+        {"id":"10000004-0000-4000-8000-000000000001","name":"Thai Peanut","description":"Greens, noodles, tofu, vegetables, peanuts, sesame.","price":"$19","dietaryStatus":"Vegan","sourceEvidence":"Marked V"},
+        {"id":"10000004-0000-4000-8000-000000000002","name":"House Greens","description":"House salad.","price":"$10","dietaryStatus":"Vegan","sourceEvidence":"Marked V"},
+        {"id":"10000004-0000-4000-8000-000000000003","name":"Tofu Banh Mi","description":"Tamari tofu, vegetables, and vegan spicy mayo.","price":"$14 half · $19 full","dietaryStatus":"Vegan","sourceEvidence":"Marked V"},
+        {"id":"10000004-0000-4000-8000-000000000004","name":"B.L.A.T","description":"Tofu bacon, spinach, tomato, avocado, vegan mayo.","price":"$12 half · $17 full","dietaryStatus":"Vegan","sourceEvidence":"Marked V"},
+        {"id":"10000004-0000-4000-8000-000000000005","name":"The Old School","description":"Avocado toast with tomato and balsamic.","price":"$9","dietaryStatus":"Vegan","sourceEvidence":"Marked V"},
+        {"id":"10000004-0000-4000-8000-000000000006","name":"Basic B","description":"Breakfast plate with eggs, toast, and butter.","price":"$13","dietaryStatus":"Can be made vegan","modificationNote":"Substitute tofu scramble and vegan butter.","sourceEvidence":"Official substitutions"},
+        {"id":"10000004-0000-4000-8000-000000000007","name":"Loaded Breakfast Burrito","description":"Egg, cheddar, potatoes, beans, sour cream, pico.","price":"$15","dietaryStatus":"Can be made vegan","modificationNote":"Substitute tofu scramble, vegan queso, and sunflower crema.","sourceEvidence":"Marked VO with substitutions"},
+        {"id":"10000004-0000-4000-8000-000000000008","name":"Beirut Plate","description":"Labneh, eggs, vegetables, olives, and ciabatta.","price":"$17","dietaryStatus":"Can be made vegan","modificationNote":"Substitute hummus for labneh and tofu for eggs.","sourceEvidence":"Marked VO with substitutions"},
+        {"id":"10000004-0000-4000-8000-000000000009","name":"Garden Grove","description":"Vegetable-forward dish with burrata by default.","price":"$16","dietaryStatus":"Can be made vegan","modificationNote":"Substitute hummus for burrata.","sourceEvidence":"Official substitution"},
+        {"id":"10000004-0000-4000-8000-000000000010","name":"Bloomin' Burrata","description":"Burrata dish with plant-based substitutions.","price":"$17","dietaryStatus":"Can be made vegan","modificationNote":"Substitute crispy tamari tofu or tofu bacon for burrata.","sourceEvidence":"Official substitutions"}
+      ]
+    },
+    {
+      "id":"00000000-0000-4000-8000-000000000005","name":"Snarf's Sandwiches","neighborhood":"Capitol Hill","address":"1003 E 11th Ave, Denver, CO 80218","latitude":39.7338,"longitude":-104.9733,
+      "verifiedAt":"2026-08-30T00:00:00Z","auditedAt":"2026-08-30T00:00:00Z","coverageStatus":"Complete","coverageScope":"All named meat-free sandwiches on the official menu; salads, beverages, and add-ons with unclear dietary support excluded.","menuURL":"https://www.eatsnarfs.com/menu","extractionMode":"change_detection",
+      "menuItems":[
+        {"id":"10000005-0000-4000-8000-000000000001","name":"Cheese & Mushroom","description":"Cheese and mushroom sandwich.","price":"See menu","dietaryStatus":"Vegetarian","sourceEvidence":"Official menu"},
+        {"id":"10000005-0000-4000-8000-000000000002","name":"Vegetarian","description":"Avocado, sprouts, and provolone.","price":"See menu","dietaryStatus":"Vegetarian","sourceEvidence":"Official menu"},
+        {"id":"10000005-0000-4000-8000-000000000003","name":"Portobello & Provolone","description":"Portobello and provolone sandwich.","price":"See menu","dietaryStatus":"Vegetarian","sourceEvidence":"Official menu"},
+        {"id":"10000005-0000-4000-8000-000000000004","name":"Eggplant Parmesan","description":"Eggplant parmesan sandwich.","price":"See menu","dietaryStatus":"Vegetarian","sourceEvidence":"Official menu"},
+        {"id":"10000005-0000-4000-8000-000000000005","name":"Artichoke & Feta with Provolone","description":"Artichoke, feta, and provolone sandwich.","price":"See menu","dietaryStatus":"Vegetarian","sourceEvidence":"Official menu"},
+        {"id":"10000005-0000-4000-8000-000000000006","name":"Grilled Cheese","description":"Grilled cheese sandwich.","price":"See menu","dietaryStatus":"Vegetarian","sourceEvidence":"Official menu"},
+        {"id":"10000005-0000-4000-8000-000000000007","name":"Peanut Butter & Jelly","description":"Peanut butter and jelly sandwich.","price":"See menu","dietaryStatus":"Vegetarian","sourceEvidence":"Official menu; not claimed vegan"},
+        {"id":"10000005-0000-4000-8000-000000000008","name":"Peanut Butter, Banana & Honey","description":"Peanut butter, banana, and honey sandwich.","price":"See menu","dietaryStatus":"Vegetarian","sourceEvidence":"Official menu"}
+      ]
+    },
+    {
+      "id":"00000000-0000-4000-8000-000000000006","name":"Bar Nun","neighborhood":"Capitol Hill","address":"1225 Logan St, Denver, CO 80203","latitude":39.735582,"longitude":-104.982599,
+      "verifiedAt":"2026-08-30T00:00:00Z","auditedAt":"2026-08-30T00:00:00Z","coverageStatus":"Complete","coverageScope":"All named dishes marked vegan or vegetarian plus meat-free mains supported by the official ingredient list; beverages excluded.","menuURL":"https://barnundenver.com/denver-capitol-hill-neighborhood-bar-nun-denver-food-menu","extractionMode":"change_detection",
+      "menuItems":[
+        {"id":"10000006-0000-4000-8000-000000000001","name":"Fried Cheese Curds","description":"Fried cheese curds.","price":"$11.99","dietaryStatus":"Vegetarian","sourceEvidence":"Marked Ve"},
+        {"id":"10000006-0000-4000-8000-000000000002","name":"Fried Pickle Spears","description":"Fried pickles with dipping sauce.","price":"$10.99","dietaryStatus":"Vegetarian","sourceEvidence":"Marked Ve"},
+        {"id":"10000006-0000-4000-8000-000000000003","name":"Giant Bavarian Pretzel","description":"Giant soft pretzel.","price":"$11.99","dietaryStatus":"Vegetarian","sourceEvidence":"Marked Ve"},
+        {"id":"10000006-0000-4000-8000-000000000004","name":"French Fries","description":"French fries with ketchup.","price":"$6.99+","dietaryStatus":"Vegan","sourceEvidence":"Marked V"},
+        {"id":"10000006-0000-4000-8000-000000000005","name":"3 Wise Men","description":"Salsa, guacamole, queso, tortilla chips.","price":"$10.99","dietaryStatus":"Vegetarian","sourceEvidence":"Marked Ve"},
+        {"id":"10000006-0000-4000-8000-000000000006","name":"Vegetarian Green Chili","description":"House vegetarian green chili.","price":"$5.99–$10.99","dietaryStatus":"Vegetarian","sourceEvidence":"Explicitly vegetarian"},
+        {"id":"10000006-0000-4000-8000-000000000007","name":"Spinach-Artichoke Dip","description":"Spinach-artichoke dip.","price":"$13.99","dietaryStatus":"Vegetarian","sourceEvidence":"Marked Ve"},
+        {"id":"10000006-0000-4000-8000-000000000008","name":"Green Chili Mac & Cheese","description":"Mac and cheese with vegetarian green chili.","price":"$13.99","dietaryStatus":"Vegetarian","sourceEvidence":"Official menu"},
+        {"id":"10000006-0000-4000-8000-000000000009","name":"Garlic Bread Grilled Cheese","description":"Grilled cheese on garlic bread.","price":"$12.99","dietaryStatus":"Vegetarian","sourceEvidence":"Official ingredients"},
+        {"id":"10000006-0000-4000-8000-000000000010","name":"Cheese Quesadilla","description":"Cheese quesadilla without optional meat.","price":"$11.99","dietaryStatus":"Vegetarian","sourceEvidence":"Official ingredients"},
+        {"id":"10000006-0000-4000-8000-000000000011","name":"Black Bean Burger","description":"Black-bean patty, cotija, and chipotle sauce.","price":"$17.99","dietaryStatus":"Vegetarian","sourceEvidence":"Official ingredients"},
+        {"id":"10000006-0000-4000-8000-000000000012","name":"Greek Pizza","description":"Greek-style vegetarian pizza.","price":"$16.99–$18.99","dietaryStatus":"Vegetarian","sourceEvidence":"Marked vegetarian"},
+        {"id":"10000006-0000-4000-8000-000000000013","name":"Margherita Pizza","description":"Tomato, cheese, and herbs.","price":"$13.99–$17.99","dietaryStatus":"Vegetarian","sourceEvidence":"Official ingredients"}
+      ]
+    },
+    {
+      "id":"00000000-0000-4000-8000-000000000007","name":"The Cake Bar","neighborhood":"Capitol Hill","address":"214 E 13th Ave, Denver, CO 80203","latitude":39.73668,"longitude":-104.98435,
+      "verifiedAt":"2026-08-30T00:00:00Z","auditedAt":"2026-08-30T00:00:00Z","coverageStatus":"Complete","coverageScope":"Every named baked good, ice-cream item, and macaron on the official walk-in menu; custom cakes and beverages excluded.","menuURL":"https://thecakebardenver.com/menu/","extractionMode":"change_detection",
+      "menuItems":[
+        {"id":"10000007-0000-4000-8000-000000000001","name":"Jumbo Cupcake","description":"Plant-based cupcake.","price":"$6","dietaryStatus":"Vegan","sourceEvidence":"Plant-based bakery menu"},
+        {"id":"10000007-0000-4000-8000-000000000002","name":"Gluten-Free Jumbo Cupcake","description":"Plant-based gluten-free cupcake.","price":"$6.50","dietaryStatus":"Vegan","sourceEvidence":"Plant-based bakery menu"},
+        {"id":"10000007-0000-4000-8000-000000000003","name":"Chocolate Chip Cookie with Marshmallows","description":"Plant-based cookie.","price":"$4","dietaryStatus":"Vegan","sourceEvidence":"Plant-based bakery menu"},
+        {"id":"10000007-0000-4000-8000-000000000004","name":"Chocolate Chip Cookie with M&M's","description":"Plant-based cookie.","price":"$4","dietaryStatus":"Vegan","sourceEvidence":"Plant-based bakery menu"},
+        {"id":"10000007-0000-4000-8000-000000000005","name":"Muddy Buddies","description":"Plant-based cereal snack.","price":"$6","dietaryStatus":"Vegan","sourceEvidence":"Plant-based bakery menu"},
+        {"id":"10000007-0000-4000-8000-000000000006","name":"Fudge Brownie","description":"Plant-based brownie.","price":"$6.50","dietaryStatus":"Vegan","sourceEvidence":"Plant-based bakery menu"},
+        {"id":"10000007-0000-4000-8000-000000000007","name":"Gluten-Free Fudge Brownie","description":"Plant-based gluten-free brownie.","price":"$7","dietaryStatus":"Vegan","sourceEvidence":"Plant-based bakery menu"},
+        {"id":"10000007-0000-4000-8000-000000000008","name":"Oatmeal Cream Pie","description":"Plant-based cream pie.","price":"$7","dietaryStatus":"Vegan","sourceEvidence":"Plant-based bakery menu"},
+        {"id":"10000007-0000-4000-8000-000000000009","name":"Gluten-Free Cupcake Du Jour","description":"Plant-based cupcake of the day.","price":"$6.50","dietaryStatus":"Vegan","sourceEvidence":"Plant-based bakery menu"},
+        {"id":"10000007-0000-4000-8000-000000000010","name":"Zebra Cake","description":"Plant-based snack cake.","price":"$6.50","dietaryStatus":"Vegan","sourceEvidence":"Plant-based bakery menu"},
+        {"id":"10000007-0000-4000-8000-000000000011","name":"Around the Campfire Ice Cream","description":"Plant-based pint.","price":"$8.99","dietaryStatus":"Vegan","sourceEvidence":"Plant-based bakery menu"},
+        {"id":"10000007-0000-4000-8000-000000000012","name":"It's My Birthday Cake Ice Cream","description":"Plant-based pint.","price":"$8.99","dietaryStatus":"Vegan","sourceEvidence":"Plant-based bakery menu"},
+        {"id":"10000007-0000-4000-8000-000000000013","name":"Cookie Dough Dream Ice Cream","description":"Plant-based pint.","price":"$8.99","dietaryStatus":"Vegan","sourceEvidence":"Plant-based bakery menu"},
+        {"id":"10000007-0000-4000-8000-000000000014","name":"Rocky Mountain Road Ice Cream","description":"Plant-based pint.","price":"$8.99","dietaryStatus":"Vegan","sourceEvidence":"Plant-based bakery menu"},
+        {"id":"10000007-0000-4000-8000-000000000015","name":"Peanut Butter Brownie Ice Cream","description":"Plant-based pint.","price":"$8.99","dietaryStatus":"Vegan","sourceEvidence":"Plant-based bakery menu"},
+        {"id":"10000007-0000-4000-8000-000000000016","name":"Cookie Dough 2.0 Ice Cream Sandwich","description":"Plant-based ice-cream sandwich.","price":"$9.50","dietaryStatus":"Vegan","sourceEvidence":"Plant-based bakery menu"},
+        {"id":"10000007-0000-4000-8000-000000000017","name":"Lucky Denver Mint Ice Cream Sandwich","description":"Plant-based ice-cream sandwich.","price":"$9.50","dietaryStatus":"Vegan","sourceEvidence":"Plant-based bakery menu"},
+        {"id":"10000007-0000-4000-8000-000000000018","name":"The OG Ice Cream Sandwich","description":"Plant-based ice-cream sandwich.","price":"$9.50","dietaryStatus":"Vegan","sourceEvidence":"Plant-based bakery menu"},
+        {"id":"10000007-0000-4000-8000-000000000019","name":"Strawberry Snickerdoodle Ice Cream Sandwich","description":"Plant-based ice-cream sandwich.","price":"$9.50","dietaryStatus":"Vegan","sourceEvidence":"Plant-based bakery menu"},
+        {"id":"10000007-0000-4000-8000-000000000020","name":"Lavender Macaron","description":"Plant-based macaron.","price":"$3","dietaryStatus":"Vegan","sourceEvidence":"Plant-based bakery menu"},
+        {"id":"10000007-0000-4000-8000-000000000021","name":"Chocolate Macaron","description":"Plant-based macaron.","price":"$3","dietaryStatus":"Vegan","sourceEvidence":"Plant-based bakery menu"},
+        {"id":"10000007-0000-4000-8000-000000000022","name":"Rose Macaron","description":"Plant-based macaron.","price":"$3","dietaryStatus":"Vegan","sourceEvidence":"Plant-based bakery menu"},
+        {"id":"10000007-0000-4000-8000-000000000023","name":"Lemon Macaron","description":"Plant-based macaron.","price":"$3","dietaryStatus":"Vegan","sourceEvidence":"Plant-based bakery menu"},
+        {"id":"10000007-0000-4000-8000-000000000024","name":"Matcha Macaron","description":"Plant-based macaron.","price":"$3","dietaryStatus":"Vegan","sourceEvidence":"Plant-based bakery menu"},
+        {"id":"10000007-0000-4000-8000-000000000025","name":"Raspberry Macaron","description":"Plant-based macaron.","price":"$3","dietaryStatus":"Vegan","sourceEvidence":"Plant-based bakery menu"},
+        {"id":"10000007-0000-4000-8000-000000000026","name":"Pistachio Macaron","description":"Plant-based macaron.","price":"$3","dietaryStatus":"Vegan","sourceEvidence":"Plant-based bakery menu"},
+        {"id":"10000007-0000-4000-8000-000000000027","name":"Vanilla Macaron","description":"Plant-based macaron.","price":"$3","dietaryStatus":"Vegan","sourceEvidence":"Plant-based bakery menu"},
+        {"id":"10000007-0000-4000-8000-000000000028","name":"Blueberry Macaron","description":"Plant-based macaron.","price":"$3","dietaryStatus":"Vegan","sourceEvidence":"Plant-based bakery menu"},
+        {"id":"10000007-0000-4000-8000-000000000029","name":"Mocha Macaron","description":"Plant-based macaron.","price":"$3","dietaryStatus":"Vegan","sourceEvidence":"Plant-based bakery menu"},
+        {"id":"10000007-0000-4000-8000-000000000030","name":"Earl Grey Macaron","description":"Plant-based macaron.","price":"$3","dietaryStatus":"Vegan","sourceEvidence":"Plant-based bakery menu"},
+        {"id":"10000007-0000-4000-8000-000000000031","name":"Orange Macaron","description":"Plant-based macaron.","price":"$3","dietaryStatus":"Vegan","sourceEvidence":"Plant-based bakery menu"},
+        {"id":"10000007-0000-4000-8000-000000000032","name":"Pre-selected Macaron 6-Pack","description":"Six plant-based macarons.","price":"$18","dietaryStatus":"Vegan","sourceEvidence":"Plant-based bakery menu"}
+      ]
+    },
+    {
+      "id":"00000000-0000-4000-8000-000000000008","name":"Hudson Hill","neighborhood":"Capitol Hill","address":"619 E 13th Ave, Denver, CO 80203","latitude":39.73673,"longitude":-104.9793,
+      "verifiedAt":"2026-08-30T00:00:00Z","auditedAt":"2026-08-30T00:00:00Z","coverageStatus":"Complete","coverageScope":"All named dishes explicitly labeled vegan on the official ordering menu; beverages and add-ons excluded.","menuURL":"https://order.toasttab.com/online/hudson-hill","checkURL":"https://www.hudsonhilldenver.com/home","extractionMode":"change_detection",
+      "menuItems":[{"id":"10000008-0000-4000-8000-000000000001","name":"La Foglia Vegan Sandwich","description":"Vegan chickpea salad and Sichuan cucumbers on baguette; stock varies.","price":"$14","dietaryStatus":"Vegan","sourceEvidence":"Explicitly labeled vegan"}]
+    },
+    {
+      "id":"00000000-0000-4000-8000-000000000009","name":"Syrup Capitol Hill","neighborhood":"Capitol Hill","address":"410 E 7th Ave, Denver, CO 80203","latitude":39.7274,"longitude":-104.9819,
+      "verifiedAt":"2026-08-30T00:00:00Z","auditedAt":"2026-08-30T00:00:00Z","coverageStatus":"Complete","coverageScope":"All named meat-free dishes and supported vegetarian or vegan builds on official menus; beverages and sides excluded.","menuURL":"https://order.toasttab.com/online/syrup-restaurant-capitol-hill","checkURL":"https://syruprestaurant.com/food-menu","extractionMode":"change_detection",
+      "menuItems":[
+        {"id":"10000009-0000-4000-8000-000000000001","name":"Veggie Breakfast Bowl","description":"Vegetables, potatoes, and avocado.","price":"$14","dietaryStatus":"Vegetarian","sourceEvidence":"Official ingredients; not claimed vegan"},
+        {"id":"10000009-0000-4000-8000-000000000002","name":"The Garden","description":"Vegetable omelet with feta.","price":"$15","dietaryStatus":"Can be made vegan","modificationNote":"Choose vegan eggs and no feta.","sourceEvidence":"Official ordering options"},
+        {"id":"10000009-0000-4000-8000-000000000003","name":"Greek Yogurt Bowl","description":"Yogurt, granola, fruit, walnuts, honey.","price":"$13","dietaryStatus":"Vegetarian","sourceEvidence":"Official ingredients"},
+        {"id":"10000009-0000-4000-8000-000000000004","name":"Oatmeal Bowl","description":"Breakfast oatmeal with toppings.","price":"$6","dietaryStatus":"Vegetarian","sourceEvidence":"Official menu; not claimed vegan"},
+        {"id":"10000009-0000-4000-8000-000000000005","name":"Spinach & Cheese Empanadas","description":"Empanadas with selectable filling.","price":"$15","dietaryStatus":"Can be made vegetarian","modificationNote":"Choose the spinach-and-cheese filling.","sourceEvidence":"Official filling choice"},
+        {"id":"10000009-0000-4000-8000-000000000006","name":"Build Your Own Omelet","description":"Custom omelet with selectable fillings.","price":"$9+","dietaryStatus":"Can be made vegetarian","modificationNote":"Choose only vegetable and cheese fillings; do not add meat.","sourceEvidence":"Official filling choices"}
+      ]
+    },
+    {
+      "id":"00000000-0000-4000-8000-000000000010","name":"Anise, Modern Vietnamese Eatery","neighborhood":"Capitol Hill","address":"865 N Lincoln St, Denver, CO 80203","latitude":39.7301178,"longitude":-104.9861603,
+      "verifiedAt":"2026-08-30T00:00:00Z","auditedAt":"2026-08-30T00:00:00Z","coverageStatus":"Complete","coverageScope":"All named dishes marked vegan or vegetarian on the official food menu; beverages and add-ons excluded.","menuURL":"https://anisedenver.com/entrees/","extractionMode":"change_detection",
+      "menuItems":[
+        {"id":"10000010-0000-4000-8000-000000000001","name":"Crispy Tofu","description":"Lightly fried tofu.","price":"$8.95","dietaryStatus":"Vegan","sourceEvidence":"Marked V"},
+        {"id":"10000010-0000-4000-8000-000000000002","name":"Spicy Edamame","description":"Seasoned edamame.","price":"$8.95","dietaryStatus":"Vegan","sourceEvidence":"Marked V"},
+        {"id":"10000010-0000-4000-8000-000000000003","name":"Crispy Vegan Rolls","description":"Vietnamese crispy vegan rolls.","price":"$8.95","dietaryStatus":"Vegan","sourceEvidence":"Labeled vegan"},
+        {"id":"10000010-0000-4000-8000-000000000004","name":"Tofu Salad Rolls","description":"Tofu, noodles, and herbs in rice paper.","price":"$8.95","dietaryStatus":"Vegan","sourceEvidence":"Marked V"},
+        {"id":"10000010-0000-4000-8000-000000000005","name":"Tofu Veggies Soup","description":"Tofu, vegetable, and noodle soup.","price":"$7.95","dietaryStatus":"Vegan","sourceEvidence":"Marked V"},
+        {"id":"10000010-0000-4000-8000-000000000006","name":"Vegan House Salad","description":"Romaine, vegetables, herbs, and croutons.","price":"$7.95","dietaryStatus":"Vegan","sourceEvidence":"Labeled vegan"},
+        {"id":"10000010-0000-4000-8000-000000000007","name":"Anise Vegan Special","description":"Marinated tofu with noodles and herbs.","price":"$22.95","dietaryStatus":"Vegan","sourceEvidence":"Labeled vegan"},
+        {"id":"10000010-0000-4000-8000-000000000008","name":"Vegan Pho","description":"Vegan broth, tofu, mushrooms, and vegetables.","price":"$15.50","dietaryStatus":"Vegan","sourceEvidence":"Labeled vegan"},
+        {"id":"10000010-0000-4000-8000-000000000009","name":"Tofu Curry","description":"Coconut curry with tofu and vegetables.","price":"$17.95","dietaryStatus":"Vegan","sourceEvidence":"Marked V"},
+        {"id":"10000010-0000-4000-8000-000000000010","name":"Tofu Canh Chua","description":"Savory-sour soup with tofu and vegetables.","price":"$17.95","dietaryStatus":"Vegan","sourceEvidence":"Marked V"},
+        {"id":"10000010-0000-4000-8000-000000000011","name":"Crispy Vegan Roll Bun Bowl","description":"Noodle bowl with crispy rolls.","price":"$17.95","dietaryStatus":"Can be made vegan","modificationNote":"Choose the vegan crispy-roll option.","sourceEvidence":"Official pork-or-vegan choice"},
+        {"id":"10000010-0000-4000-8000-000000000012","name":"Tofu Lemongrass Bun Bowl","description":"Lemongrass tofu noodle bowl.","price":"$17.95","dietaryStatus":"Vegan","sourceEvidence":"Marked V"},
+        {"id":"10000010-0000-4000-8000-000000000013","name":"Tofu Stir-Fried","description":"Stir-fried noodles and tofu.","price":"$17.95","dietaryStatus":"Vegan","sourceEvidence":"Marked V"},
+        {"id":"10000010-0000-4000-8000-000000000014","name":"Tofu Fried Rice","description":"Fried rice with tofu.","price":"$17.95","dietaryStatus":"Vegan","sourceEvidence":"Marked V"},
+        {"id":"10000010-0000-4000-8000-000000000015","name":"Vietnamese Vegetarian Crepe","description":"Rice-and-egg crepe with tofu and vegetables.","price":"$21.95","dietaryStatus":"Vegetarian","sourceEvidence":"Marked Veg"}
+      ]
+    }
+  ]
+}

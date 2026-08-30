@@ -1,0 +1,447 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		332168395B05A1E4980223B8 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = F65CD640E948052B7CA4B410 /* Assets.xcassets */; };
+		384CC8A780176607F053C905 /* NearbyRestaurantsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 650A78FC554D89C5B13550D8 /* NearbyRestaurantsView.swift */; };
+		7ED1B31E202E0CB483ECE7E5 /* RestaurantSearch.swift in Sources */ = {isa = PBXBuildFile; fileRef = 528C9BE919BA6EDC753BFACE /* RestaurantSearch.swift */; };
+		8354B66DF5F430939FF32D6F /* RestaurantDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D493DD90F22429E04F4EA34E /* RestaurantDetailView.swift */; };
+		8BE892ACDD8EF2F380D7B2DA /* RestaurantSearchTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E6B13EBB8B97BE1D8400BD70 /* RestaurantSearchTests.swift */; };
+		913D4E2DC6361841CDF3B51B /* VegFinderApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 46F255253F63CA4F4BEE997B /* VegFinderApp.swift */; };
+		CDE9C1A37D0E669D407F1CDC /* RestaurantCatalog.swift in Sources */ = {isa = PBXBuildFile; fileRef = 754D3931D8AD91C3D3CF4804 /* RestaurantCatalog.swift */; };
+		DFC42164E149A9BF860F47AB /* Models.swift in Sources */ = {isa = PBXBuildFile; fileRef = B556D55C536BBEC32E589AAD /* Models.swift */; };
+		F5A5D9735FD499593A6973C9 /* LocationManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 85B170D502C923D2D6479A41 /* LocationManager.swift */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		3100C2026562476D91DF7EF4 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = CA74BAC0506FEE72A0387C50 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = C3C22467900B4153344E8CAB;
+			remoteInfo = VegFinder;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXFileReference section */
+		46F255253F63CA4F4BEE997B /* VegFinderApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VegFinderApp.swift; sourceTree = "<group>"; };
+		528C9BE919BA6EDC753BFACE /* RestaurantSearch.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RestaurantSearch.swift; sourceTree = "<group>"; };
+		650A78FC554D89C5B13550D8 /* NearbyRestaurantsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NearbyRestaurantsView.swift; sourceTree = "<group>"; };
+		654D517A7038F498CF3214F9 /* VegFinderTests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = VegFinderTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		754D3931D8AD91C3D3CF4804 /* RestaurantCatalog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RestaurantCatalog.swift; sourceTree = "<group>"; };
+		7F3B6B34D5F07B91720CE314 /* VegFinder.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = VegFinder.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		85B170D502C923D2D6479A41 /* LocationManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocationManager.swift; sourceTree = "<group>"; };
+		B556D55C536BBEC32E589AAD /* Models.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Models.swift; sourceTree = "<group>"; };
+		D493DD90F22429E04F4EA34E /* RestaurantDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RestaurantDetailView.swift; sourceTree = "<group>"; };
+		E6B13EBB8B97BE1D8400BD70 /* RestaurantSearchTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RestaurantSearchTests.swift; sourceTree = "<group>"; };
+		F65CD640E948052B7CA4B410 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXGroup section */
+		6B1E247C633B24AE8E3965E0 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				7F3B6B34D5F07B91720CE314 /* VegFinder.app */,
+				654D517A7038F498CF3214F9 /* VegFinderTests.xctest */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		877EFD2179A41AC4B18A74A5 /* VegFinderTests */ = {
+			isa = PBXGroup;
+			children = (
+				E6B13EBB8B97BE1D8400BD70 /* RestaurantSearchTests.swift */,
+			);
+			path = VegFinderTests;
+			sourceTree = "<group>";
+		};
+		D0558AA2BD89D7C71CD75BA8 = {
+			isa = PBXGroup;
+			children = (
+				FFC2626DCACF3E941103E26A /* VegFinder */,
+				877EFD2179A41AC4B18A74A5 /* VegFinderTests */,
+				6B1E247C633B24AE8E3965E0 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		FFC2626DCACF3E941103E26A /* VegFinder */ = {
+			isa = PBXGroup;
+			children = (
+				F65CD640E948052B7CA4B410 /* Assets.xcassets */,
+				85B170D502C923D2D6479A41 /* LocationManager.swift */,
+				B556D55C536BBEC32E589AAD /* Models.swift */,
+				650A78FC554D89C5B13550D8 /* NearbyRestaurantsView.swift */,
+				754D3931D8AD91C3D3CF4804 /* RestaurantCatalog.swift */,
+				D493DD90F22429E04F4EA34E /* RestaurantDetailView.swift */,
+				528C9BE919BA6EDC753BFACE /* RestaurantSearch.swift */,
+				46F255253F63CA4F4BEE997B /* VegFinderApp.swift */,
+			);
+			path = VegFinder;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		9FDFE9D92947F8E89FD3F536 /* VegFinderTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 123833FF8F3C3AC4BBBA7DA7 /* Build configuration list for PBXNativeTarget "VegFinderTests" */;
+			buildPhases = (
+				62343A16EE8C4AAE5E7E1602 /* Sources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				8304B837F55DE880B7AEF833 /* PBXTargetDependency */,
+			);
+			name = VegFinderTests;
+			packageProductDependencies = (
+			);
+			productName = VegFinderTests;
+			productReference = 654D517A7038F498CF3214F9 /* VegFinderTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
+		C3C22467900B4153344E8CAB /* VegFinder */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 3DCA1461A3F0EDE3B0D33172 /* Build configuration list for PBXNativeTarget "VegFinder" */;
+			buildPhases = (
+				CF42C2622B40943A6F7C9393 /* Sources */,
+				CB48B84AF39B9E09D5A279FA /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = VegFinder;
+			packageProductDependencies = (
+			);
+			productName = VegFinder;
+			productReference = 7F3B6B34D5F07B91720CE314 /* VegFinder.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		CA74BAC0506FEE72A0387C50 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = YES;
+				LastUpgradeCheck = 1430;
+				TargetAttributes = {
+					C3C22467900B4153344E8CAB = {
+						DevelopmentTeam = CNK57345QT;
+					};
+				};
+			};
+			buildConfigurationList = FB9514AF120721BEC73B21C3 /* Build configuration list for PBXProject "VegFinder" */;
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				Base,
+				en,
+			);
+			mainGroup = D0558AA2BD89D7C71CD75BA8;
+			minimizedProjectReferenceProxies = 1;
+			preferredProjectObjectVersion = 77;
+			productRefGroup = 6B1E247C633B24AE8E3965E0 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				C3C22467900B4153344E8CAB /* VegFinder */,
+				9FDFE9D92947F8E89FD3F536 /* VegFinderTests */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		CB48B84AF39B9E09D5A279FA /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				332168395B05A1E4980223B8 /* Assets.xcassets in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		62343A16EE8C4AAE5E7E1602 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				8BE892ACDD8EF2F380D7B2DA /* RestaurantSearchTests.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		CF42C2622B40943A6F7C9393 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				F5A5D9735FD499593A6973C9 /* LocationManager.swift in Sources */,
+				DFC42164E149A9BF860F47AB /* Models.swift in Sources */,
+				384CC8A780176607F053C905 /* NearbyRestaurantsView.swift in Sources */,
+				CDE9C1A37D0E669D407F1CDC /* RestaurantCatalog.swift in Sources */,
+				8354B66DF5F430939FF32D6F /* RestaurantDetailView.swift in Sources */,
+				7ED1B31E202E0CB483ECE7E5 /* RestaurantSearch.swift in Sources */,
+				913D4E2DC6361841CDF3B51B /* VegFinderApp.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		8304B837F55DE880B7AEF833 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = C3C22467900B4153344E8CAB /* VegFinder */;
+			targetProxy = 3100C2026562476D91DF7EF4 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
+/* Begin XCBuildConfiguration section */
+		0B4F3E832D58B0D985ADFB53 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.vegfinder.VegFinderTests;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/VegFinder.app/VegFinder";
+			};
+			name = Release;
+		};
+		1DB9FA8A5CDF69242B8A3265 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				CURRENT_PROJECT_VERSION = 1;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"$(inherited)",
+					"DEBUG=1",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				MARKETING_VERSION = 0.1.0;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+		4C5EEF116CDB8DB6F37160A5 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = "";
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				DEVELOPMENT_TEAM = CNK57345QT;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = VegFinder;
+				INFOPLIST_KEY_NSAppTransportSecurity_NSAllowsLocalNetworking = YES;
+				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "VegFinder uses your location to sort nearby restaurants by distance.";
+				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
+				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				INFOPLIST_KEY_VegFinderCatalogURL = "http://localhost:8787/v1/catalog";
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.vegfinder.app;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Debug;
+		};
+		5B11C25A28D57650C96FBF24 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				CURRENT_PROJECT_VERSION = 1;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				MARKETING_VERSION = 0.1.0;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_VERSION = 5.0;
+			};
+			name = Release;
+		};
+		68F31E7F9EDC8BBEC1ADD2F9 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = "";
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				DEVELOPMENT_TEAM = CNK57345QT;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = VegFinder;
+				INFOPLIST_KEY_NSAppTransportSecurity_NSAllowsLocalNetworking = YES;
+				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "VegFinder uses your location to sort nearby restaurants by distance.";
+				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
+				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				INFOPLIST_KEY_VegFinderCatalogURL = "http://localhost:8787/v1/catalog";
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.vegfinder.app;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Release;
+		};
+		FC80EC15CD3848AC52F0A531 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.vegfinder.VegFinderTests;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/VegFinder.app/VegFinder";
+			};
+			name = Debug;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		123833FF8F3C3AC4BBBA7DA7 /* Build configuration list for PBXNativeTarget "VegFinderTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				FC80EC15CD3848AC52F0A531 /* Debug */,
+				0B4F3E832D58B0D985ADFB53 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		3DCA1461A3F0EDE3B0D33172 /* Build configuration list for PBXNativeTarget "VegFinder" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				4C5EEF116CDB8DB6F37160A5 /* Debug */,
+				68F31E7F9EDC8BBEC1ADD2F9 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		FB9514AF120721BEC73B21C3 /* Build configuration list for PBXProject "VegFinder" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				1DB9FA8A5CDF69242B8A3265 /* Debug */,
+				5B11C25A28D57650C96FBF24 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = CA74BAC0506FEE72A0387C50 /* Project object */;
+}

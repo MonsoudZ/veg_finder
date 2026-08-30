@@ -1,0 +1,45 @@
+name: VegFinder
+options:
+  bundleIdPrefix: com.vegfinder
+  deploymentTarget:
+    iOS: "17.0"
+settings:
+  base:
+    SWIFT_VERSION: "5.0"
+    CURRENT_PROJECT_VERSION: 1
+    MARKETING_VERSION: 0.1.0
+targets:
+  VegFinder:
+    type: application
+    platform: iOS
+    sources:
+      - VegFinder
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.vegfinder.app
+        DEVELOPMENT_TEAM: CNK57345QT
+        GENERATE_INFOPLIST_FILE: YES
+        INFOPLIST_KEY_CFBundleDisplayName: VegFinder
+        INFOPLIST_KEY_NSLocationWhenInUseUsageDescription: VegFinder uses your location to sort nearby restaurants by distance.
+        INFOPLIST_KEY_NSAppTransportSecurity_NSAllowsLocalNetworking: YES
+        INFOPLIST_KEY_VegFinderCatalogURL: http://localhost:8787/v1/catalog
+        INFOPLIST_KEY_UIApplicationSceneManifest_Generation: YES
+        INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents: YES
+        INFOPLIST_KEY_UILaunchScreen_Generation: YES
+        TARGETED_DEVICE_FAMILY: "1"
+        ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
+        ASSETCATALOG_COMPILER_APPICON_NAME: ""
+        IPHONEOS_DEPLOYMENT_TARGET: "17.0"
+    scheme:
+      testTargets:
+        - VegFinderTests
+  VegFinderTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - VegFinderTests
+    dependencies:
+      - target: VegFinder
+    settings:
+      base:
+        IPHONEOS_DEPLOYMENT_TARGET: "17.0"

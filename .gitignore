@@ -1,0 +1,6 @@
+.DS_Store
+service/data/*.sqlite
+service/data/*.sqlite-shm
+service/data/*.sqlite-wal
+xcuserdata/
+DerivedData/
