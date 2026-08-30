@@ -64,22 +64,18 @@ docker run -p 8787:8787 -e DATABASE_URL="$DATABASE_URL" vegfinder-catalog
 
 Point the production iOS configuration at the deployed HTTPS `/v1/catalog` URL. The checked-in project setting remains localhost-only for development.
 
-## Deploy to Render
+## Deploy to Railway
 
-The repository root contains `render.yaml`, which defines:
+Deploy the `service` directory as one persistent Railway service and add Railway PostgreSQL to the same project. The container starts the API, applies migrations, imports the audited seed when the database is empty, and checks official menu sources every 24 hours. A PostgreSQL advisory lock prevents duplicate checks if deployments briefly overlap.
 
-- an always-on Docker web service;
-- a private managed PostgreSQL database;
-- an initial import of the manually audited catalog;
-- database migrations before each web deploy; and
-- a daily menu-source check at 12:00 UTC.
+For a GitHub deployment:
 
-The API service disables its in-process timer because the dedicated cron job owns scheduled checks. Both paths still use the PostgreSQL advisory lock, so an accidentally overlapping run cannot duplicate a check cycle.
+1. Create a Railway project and add PostgreSQL.
+2. Add this GitHub repository as a service and set its root directory to `/service`.
+3. Add `DATABASE_URL=${{Postgres.DATABASE_URL}}` as a reference variable on the API service. Keep the database private; the API can reach it over Railway's project network.
+4. Generate a long random `INTERNAL_API_TOKEN` and seal it. This enables the protected review queue without exposing the token in the dashboard after creation.
+5. Generate a public Railway domain for the API service.
+6. Confirm `GET /health` returns `200` and `GET /v1/catalog` returns the seeded restaurants and full item lists.
+7. Copy the assigned HTTPS hostname into the iOS Release value for `CATALOG_API_BASE_URL`.
 
-Create the Blueprint from this repository in Render. After the first deployment:
-
-1. Confirm `GET /health` returns `200`.
-2. Confirm `GET /v1/catalog` returns the seeded restaurants and full item lists.
-3. Copy the assigned HTTPS hostname into the iOS Release value for `CATALOG_API_BASE_URL`.
-
-The Blueprint intentionally selects paid, persistent resources. Review Render's current estimate before applying it. Do not use a free PostgreSQL instance for production because free databases expire.
+Railway injects `PORT`; the image already listens on it at `0.0.0.0`. Do not attach a volume to the API or expose PostgreSQL publicly. Persistent catalog state belongs in PostgreSQL, while the API container remains disposable.
