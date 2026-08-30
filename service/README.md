@@ -55,7 +55,7 @@ Set `INTERNAL_API_TOKEN` to a long random value. The review queue is unavailable
 
 ## Production container
 
-The container includes Chromium, runs the API on port 8787, and checks menus every 24 hours. Pass the managed PostgreSQL connection string as `DATABASE_URL`.
+The container includes Chromium and runs the API on port 8787. Pass the managed PostgreSQL connection string as `DATABASE_URL`.
 
 ```sh
 docker build -t vegfinder-catalog .
@@ -63,3 +63,23 @@ docker run -p 8787:8787 -e DATABASE_URL="$DATABASE_URL" vegfinder-catalog
 ```
 
 Point the production iOS configuration at the deployed HTTPS `/v1/catalog` URL. The checked-in project setting remains localhost-only for development.
+
+## Deploy to Render
+
+The repository root contains `render.yaml`, which defines:
+
+- an always-on Docker web service;
+- a private managed PostgreSQL database;
+- an initial import of the manually audited catalog;
+- database migrations before each web deploy; and
+- a daily menu-source check at 12:00 UTC.
+
+The API service disables its in-process timer because the dedicated cron job owns scheduled checks. Both paths still use the PostgreSQL advisory lock, so an accidentally overlapping run cannot duplicate a check cycle.
+
+Create the Blueprint from this repository in Render. After the first deployment:
+
+1. Confirm `GET /health` returns `200`.
+2. Confirm `GET /v1/catalog` returns the seeded restaurants and full item lists.
+3. Copy the assigned HTTPS hostname into the iOS Release value for `CATALOG_API_BASE_URL`.
+
+The Blueprint intentionally selects paid, persistent resources. Review Render's current estimate before applying it. Do not use a free PostgreSQL instance for production because free databases expire.
