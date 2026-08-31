@@ -127,6 +127,59 @@ problem.
 
 Production uses PostgreSQL whenever `DATABASE_URL` is set. With no `DATABASE_URL`, the service uses SQLite for local development and tests. PostgreSQL retains item versions, source snapshots, and every check run; SQLite implements the same contract for zero-setup development.
 
+## Finding restaurants
+
+```sh
+npm run discover -- --bbox=39.70,-105.02,39.76,-104.95 --out=data/candidates/denver.json
+npm run discover -- --area="Denver" --out=data/candidates/denver.json
+npm run discover -- --bbox=… --out=… --no-menus --limit=200 --delay=2000
+```
+
+Candidates come from OpenStreetMap via Overpass. OSM is used rather than a
+commercial places API for one reason that outranks coverage: **its terms let you
+keep what you fetch.** A catalog is a database you persist and serve, and most
+places APIs restrict exactly that. Read the ODbL before shipping — attribution is
+required, and redistributing a database built from it carries share-alike
+obligations. That is a product decision, not a technical one.
+
+Discovery writes a file. It never touches the database; importing is a separate,
+deliberate act.
+
+### OSM's diet tags rank candidates and never become dietary claims
+
+`diet:vegan=only` is an assertion by a *map contributor*, not by the restaurant.
+`menuProfile: fully_vegan` publishes an entire menu with no human review. Wiring
+one to the other would let a stranger's map edit publish vegan claims to people
+who cannot eat animal products, so **discovery emits no `menuProfile` at all**.
+
+The tags decide review order only, cheapest-to-verify first, because a restaurant
+that states its whole menu is vegan costs one operator assertion and publishes
+everything, while an unlabelled steakhouse costs a person per dish and yields two
+sides. What a restaurant claims about itself is still yours to record.
+
+### Finding the menu page
+
+A places source gives you a website; this pipeline needs a menu. Discovery fetches
+each homepage and scores its links.
+
+The trap is that "menu" is the most overloaded word on a web page — every site has
+a navigation menu, a hamburger menu, a "skip to menu" link — so the interface
+senses are scored *down* rather than merely not scored up. A path is only strong
+evidence when a short segment is about menus (`/menu`, `/our-menu`,
+`/dinner-menu.pdf`), not when a long slug happens to contain the word
+(`/blog/our-new-menu-designer-profile`). Below a confidence threshold it returns
+nothing, because a wrong menu URL is worse than none: it fingerprints a page that
+never changes and reports coverage nobody can eat from.
+
+PDF menus are found and flagged. Links to JavaScript ordering platforms (Toast,
+Square, Popmenu, and similar) set `extractionMode: browser_required`, which is a
+fact about how to fetch the page rather than a claim about what is on it.
+
+On a Capitol Hill slice this found menu pages for 6 of 8 sites, and the four that
+overlapped the hand-audited seed matched its verified URL exactly. Roughly 40% of
+OSM restaurants there record no website at all, which is the real ceiling on this
+step.
+
 ## Onboarding restaurants in bulk
 
 Adding restaurants one request at a time works for ten and not for a thousand,
@@ -155,12 +208,20 @@ fields are the same ones `POST /internal/restaurants` accepts.
 Coordinates are **not** looked up. Geocoding is a separate concern with its own
 failure modes, and a silently mislocated restaurant is worse than a refused one.
 
-Each entry gets an id derived from its name and address, so **an import is safe
-to re-run**: a restaurant that already exists is left completely alone — not
-upserted, not re-fetched — because a discovery pass repeated next month must
-never overwrite a menu somebody has since audited. Two records that disagree
-about spelling import as two restaurants, which is a duplicate to merge rather
-than an audit destroyed.
+**An import is safe to re-run.** A restaurant that already exists is left
+completely alone — not upserted, not re-fetched — because a discovery pass
+repeated next month must never overwrite a menu somebody has since audited.
+
+Existence is checked twice. Each entry gets an id derived from its name and
+address, which recognises a re-import of the same file. That alone is not enough:
+a restaurant entered by hand carries a hand-assigned id, so a discovery pass over
+a city already covered would match none of them and import a second, unaudited
+copy of every restaurant somebody had verified. So identity also falls back to
+what a person would use — the same name, in the same place, within 200m, compared
+on names loosely enough that "City O' City" and "City, O' City" are one
+restaurant. A false match declines to import something you can add by hand; a
+missed match silently doubles the catalog. Those are not equivalent, and this
+errs towards the first.
 
 A malformed entry is reported with its index and skipped; an import of 200 is not
 lost because entry 87 has no longitude. A menu that will not fetch still leaves

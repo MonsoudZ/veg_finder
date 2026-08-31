@@ -67,13 +67,16 @@ export async function importCandidates(store, candidates, {
   };
 
   for (const candidate of candidates) {
-    const already = await store.getCheckTarget(candidate.id);
+    const already = await findExisting(store, candidate);
     if (already) {
       // Left completely alone. Re-running an import must never touch a menu
       // somebody already audited, so this does not upsert and does not
       // re-extract; correcting a record is a deliberate act through the admin API.
-      summary.existing.push({ id: candidate.id, name: candidate.name });
-      logger.log(`EXISTS    ${candidate.name}`);
+      summary.existing.push({ id: already.id, name: candidate.name, matchedBy: already.matchedBy });
+      logger.log(
+        `EXISTS    ${candidate.name}` +
+        (already.matchedBy === "id" ? "" : ` (already in the catalog as "${already.name}")`)
+      );
       continue;
     }
 
@@ -123,6 +126,51 @@ export async function importCandidates(store, candidates, {
   }
 
   return summary;
+}
+
+// How near two records must be to be the same restaurant. Generous enough to
+// absorb the disagreement between a hand-entered coordinate and a map node
+// placed on a different corner of the same building, tight enough that two
+// businesses of the same name this close are one business.
+const SAME_PLACE_KM = 0.2;
+
+// Whether this candidate is already in the catalog.
+//
+// The derived id catches a re-import of the same file, and nothing else. A
+// restaurant entered by hand has a hand-assigned id, and a discovery pass over a
+// city it already covers would otherwise duplicate every one of them — importing
+// a second, unaudited copy of a restaurant whose menu somebody verified, which
+// then competes with the original in the app.
+//
+// So identity also falls back to what a person would use: the same name, in the
+// same place. A false match declines to import a restaurant somebody can add by
+// hand; a missed match silently doubles the catalog. Those are not equivalent,
+// and this errs towards the first.
+async function findExisting(store, candidate) {
+  const byID = await store.getCheckTarget(candidate.id);
+  if (byID) return { id: byID.id, name: byID.name, matchedBy: "id" };
+
+  const nearby = await store.getCatalogPage({
+    latitude: candidate.latitude,
+    longitude: candidate.longitude,
+    radiusKm: SAME_PLACE_KM,
+    limit: 100
+  });
+  const wanted = comparableName(candidate.name);
+  const match = nearby.restaurants.find(
+    (restaurant) => comparableName(restaurant.name) === wanted
+  );
+  return match ? { id: match.id, name: match.name, matchedBy: "name and location" } : null;
+}
+
+// "The Corner Beet" and "Corner Beet", "City O' City" and "City O City". Two
+// sources spelling one restaurant differently is the normal case, not the odd one.
+function comparableName(name) {
+  return String(name ?? "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .replace(/^\s*the\s+/, "")
+    .trim();
 }
 
 // The number the expansion strategy turns on: of the restaurants just onboarded,

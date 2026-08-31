@@ -120,6 +120,49 @@ test("re-running an import leaves an audited restaurant untouched", async () => 
   await store.close();
 });
 
+test("a discovered restaurant already entered by hand is recognised, not duplicated", async () => {
+  // The failure this catches is the expensive one. Restaurants entered by hand
+  // carry hand-assigned ids, so a discovery pass over a city already covered
+  // matches none of them by id and would import a second, unaudited copy of
+  // every restaurant somebody had verified.
+  const store = freshStore("dedupe");
+  await store.upsertRestaurant({
+    id: "00000000-0000-4000-8000-000000000004",
+    name: "City, O' City", neighborhood: "Capitol Hill", address: "206 E 13th Ave",
+    latitude: 39.7373, longitude: -104.9817, menuURL: "https://example.com/menu",
+    checkURL: null, claimURL: null, extractionMode: "change_detection",
+    menuProfile: "unknown", verificationMethod: "official_url",
+    coverageScope: "Qualifying items found on the official menu"
+  });
+
+  const { candidates } = readCandidates([
+    // Same restaurant, a different source's spelling and its own coordinate.
+    candidate({ name: "City O' City", address: "206 E 13th Ave, Denver",
+      latitude: 39.7374, longitude: -104.9818 }),
+    // A genuinely different restaurant at the same address.
+    candidate({ name: "Somewhere Else", address: "206 E 13th Ave, Denver",
+      latitude: 39.7373, longitude: -104.9817 }),
+    // Same name, other side of the city: a second location, not a duplicate.
+    candidate({ name: "City O' City", address: "1 Far Away Rd",
+      latitude: 39.7900, longitude: -105.0400 })
+  ]);
+
+  const summary = await importCandidates(store, candidates, {
+    extract: false, delayMs: 0, logger: QUIET
+  });
+
+  assert.deepEqual(summary.existing.map((entry) => entry.matchedBy), ["name and location"]);
+  assert.equal(
+    summary.existing[0].id, "00000000-0000-4000-8000-000000000004",
+    "it reports the id the catalog already knows, not the derived one"
+  );
+  assert.deepEqual(
+    summary.created.map((entry) => entry.name), ["Somewhere Else", "City O' City"],
+    "a different name here, and the same name elsewhere, are both new restaurants"
+  );
+  await store.close();
+});
+
 test("a dry run reports what it would do and writes nothing", async () => {
   const store = freshStore("dry");
   const { candidates } = readCandidates([candidate()]);
