@@ -217,6 +217,18 @@ The API exposes separate `auditedAt` and `lastCheckedAt` values. An audit means 
 
 This avoids relying on user reports while also avoiding unsafe guesses from ingredient names. Sources marked `browser_required` run through headless Chrome or Chromium. Set `BROWSER_EXECUTABLE` when the browser is not in its default location.
 
+## Configuration
+
+Every entry point loads `service/.env` when it is there, so the variables
+documented in `.env.example` work without exporting anything. The file is
+gitignored; copy `.env.example` and fill it in.
+
+The test suite deliberately does **not** load it. Tests that read configuration
+from the environment stop testing the code and start testing the machine — and
+with a real `ANTHROPIC_API_KEY` present, a test reaching the model tier would
+make a billable call. Nothing outside an entry point reads `process.env`: the
+model client and the publish policy are passed in.
+
 ## Local development
 
 ```sh

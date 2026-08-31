@@ -12,9 +12,16 @@ import { createExtractionClient, LLM_TIER, proposeWithModel } from "./llm-extrac
 // restaurant itself has been recorded as entirely vegan by an operator: there is
 // no per-dish judgement left to make. Everything else waits for review until an
 // operator widens this deliberately.
-export function autoPublishTiers(value = process.env.AUTO_PUBLISH_TIERS) {
+// Both are whole-restaurant facts an operator records, leaving no per-dish
+// judgement to make.
+export const DEFAULT_AUTO_PUBLISH_TIERS = [TIERS.FULLY_VEGAN, TIERS.FULLY_VEGETARIAN];
+
+// Takes the setting rather than reading it, so what publishes is never decided
+// by whatever happens to be in the environment of the process running the code.
+// The entry points pass process.env.AUTO_PUBLISH_TIERS.
+export function autoPublishTiers(value) {
   const configured = value == null
-    ? new Set([TIERS.FULLY_VEGAN, TIERS.FULLY_VEGETARIAN])
+    ? new Set(DEFAULT_AUTO_PUBLISH_TIERS)
     : new Set(value.split(",").map((tier) => tier.trim()).filter(Boolean));
 
   // Not a policy choice. A model reading an unlabelled menu is inferring, and
@@ -29,7 +36,10 @@ export function autoPublishTiers(value = process.env.AUTO_PUBLISH_TIERS) {
 
 export async function proposeMenu(store, restaurant, {
   fetchImpl, browserFetchImpl, tiers = autoPublishTiers(), now = () => new Date(),
-  modelClient = createExtractionClient(), modelName
+  // Not defaulted from the environment: a test that forgot to inject one would
+  // otherwise acquire a live, billable client just by having a key set.
+  // The entry points supply this explicitly.
+  modelClient = null, modelName
 } = {}) {
   if (restaurant.menu_profile === "manual") {
     return {

@@ -4,7 +4,8 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { timingSafeEqual } from "node:crypto";
 import { validateMenuItems, validateRestaurant, COVERAGE_STATUSES } from "./catalog-input.js";
-import { proposeMenu } from "./proposals.js";
+import { createExtractionClient } from "./llm-extraction.js";
+import { autoPublishTiers, proposeMenu } from "./proposals.js";
 import { checkMenus } from "./checker.js";
 import { announceCheckResults, createNotifier } from "./notifier.js";
 import { openStore } from "./store.js";
@@ -13,6 +14,15 @@ const port = Number(process.env.PORT ?? 8787);
 const host = process.env.HOST ?? "127.0.0.1";
 const store = await openStore();
 await store.ensureSeeded();
+
+// Built once at startup so a request cannot decide whether the service is
+// allowed to spend money.
+const modelClient = createExtractionClient();
+if (!modelClient) {
+  console.warn(
+    "ANTHROPIC_API_KEY is not set. Menus with no dietary legend will be left for a person."
+  );
+}
 
 const notifier = createNotifier();
 if (!notifier.enabled) {
@@ -117,7 +127,9 @@ async function handleRequest(request, response) {
       const target = await store.getCheckTarget(propose[1].toLowerCase());
       if (!target) return json(response, 404, { error: "Unknown restaurant" }, false);
       // Extraction proposes; only a tier configured as publishable writes anything.
-      return json(response, 200, await proposeMenu(store, target), false);
+      return json(response, 200, await proposeMenu(store, target, {
+        modelClient, tiers: autoPublishTiers(process.env.AUTO_PUBLISH_TIERS)
+      }), false);
     }
 
     const reconcile = request.method === "POST" && url.pathname.match(RECONCILE_PATH);
