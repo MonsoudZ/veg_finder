@@ -291,12 +291,118 @@ while leaving earlier decisions as history.
 | `POST /internal/proposals/:id/decision` | `{"status":"accepted"\|"rejected","note":"…"}`; 409 if already decided |
 | `POST /internal/restaurants/:id/reconcile` | Publish the reviewed menu |
 
+## Reviewing changes
+
+The section above is about a restaurant with no agreed menu yet. This one is
+about a menu that was agreed and then moved.
+
+**A changed webpage never equals a changed catalog.** The checker *detects* that
+an official source moved, the proposal system *interprets* what moved, and a
+person *publishes* the result. Nothing crosses from the second step to the third
+on its own. That split is the whole design: for dietary data, a false-positive
+review costs a reviewer a minute, and a false-positive vegan label costs somebody
+who trusted it.
+
+When a check cycle finds a changed fingerprint, it re-reads that source, diffs it
+against what is published, and records a `menu_change_proposal` with one
+operation per difference:
+
+```
+Jelly — source changed Aug 31, read as labelled menu
+
+  ~ Veggie Hash          price: $13 → $15        [high confidence]
+  + Vegan Breakfast Burrito  $14.00              [medium]
+      "Vegan Breakfast Burrito (VG)"
+  - Old Seasonal Bowl                            [medium]
+
+  [Accept 2 of 3]  [Reject]
+```
+
+Dishes are matched by the same name-derived id extraction already uses, so an
+untouched dish produces no operation at all. Re-quoting the same claim from a
+different line is not a change either — evidence moves whenever a page is
+re-rendered, and treating that as a change would refill the queue every cycle.
+
+### The diff over-proposes on purpose
+
+Version one is deliberately literal, and says so rather than being clever. A
+renamed dish is proposed as a retirement plus an addition, with an ambiguity
+noting they may be one dish. What it will not do is guess in the dangerous
+direction:
+
+- **A menu that loses its dietary legend proposes nothing.** An unreadable page
+  and an emptied menu produce the same empty extraction, and only one of them
+  should empty the catalog. Same for a PDF replacing an HTML page.
+- **A diff that would retire every published item is flagged and every
+  retirement in it is dropped to low confidence.** A restaurant that genuinely
+  withdrew its vegan menu and one that reworded its legend look identical here.
+- **A changed dietary status is always low confidence**, with an ambiguity naming
+  the old and new value. That is the claim diners rely on.
+
+Confidence is about how much attention an operation needs, not how likely it is
+to be right. A price correction that moves no dietary claim is `high`; anything
+that starts, ends, or alters such a claim is not. In the review page, `high` and
+`medium` start ticked and `low` starts unticked, so accepting the default never
+publishes a claim nobody looked at.
+
+### Reviewing and accepting
+
+`GET /review` shows the diff above the drafts and the published menu. It records
+who accepted what, so the header asks for a name alongside the token.
+
+| Endpoint | Purpose |
+| --- | --- |
+| `GET /internal/review-queue` | `restaurants` the checker demoted, plus pending `proposals` |
+| `GET /internal/review-queue/:proposalId` | Old source, new source, operations, evidence, ambiguities |
+| `POST /internal/review-queue/:proposalId/accept` | `{"reviewedBy":"…","operationIds":[…],"coverageStatus":"Complete"}` |
+| `POST /internal/review-queue/:proposalId/reject` | `{"reviewedBy":"…","note":"…"}` |
+| `POST /internal/restaurants/:id/propose-changes` | Re-read one source and diff it now |
+
+`reviewedBy` is required to accept: accepting publishes dietary data, and an
+unattributed publish defeats the point of keeping a trail. `operationIds` selects
+which operations to apply — omit it for all of them, pass `[]` to record that the
+diff was read and none of it should publish. An id belonging to another proposal
+publishes **nothing**, rather than the subset the server recognised, because that
+means the reviewer is working from a stale page.
+
+The old and new source shown by the detail endpoint come from the transition the
+check run recorded, not from snapshot capture times. Snapshots are deduplicated
+by `(restaurant_id, source_hash)` and keep their first capture time, so a source
+that returns to an earlier state reuses that row: for `A → B → A → C`, the most
+recently *captured* snapshot before `C` is `B`, while the state `C` actually
+replaced was `A`. `menu_check_runs.previous_source_hash` is written at detection
+time, while the checker is holding both hashes, so the review page shows the
+transition that really happened. Where none was recorded, the proposal reports no
+"before" rather than guessing one.
+
+Acceptance runs in one transaction: it locks the proposal, checks it is still
+pending, applies the chosen operations, writes `menu_item_versions` for each,
+advances `auditedAt`, and clears `review_required`. If anything fails, none of it
+publishes. A second accept returns 409 rather than republishing.
+
+Applying is *incremental*, unlike `/reconcile`: a dish nobody proposed a change to
+is left exactly as it is, because the diff only claims to describe what moved.
+Rejecting settles the proposal but not the restaurant — the source still changed,
+so it stays in the review queue until somebody reconciles it.
+
+A fresh reading supersedes a proposal nobody has decided yet; two pending diffs
+against one menu would let a reviewer accept the stale one. Decisions already
+made are history and are left alone.
+
+Scheduled checks never pass a model client. A cycle runs over every restaurant
+whose source moved, and acquiring one implicitly would turn a routine check into
+a bill nobody asked for — so a changed menu with no legend records a proposal
+saying it could not be read, which `npm run propose` can then take further.
+
 ## Verification workflow
 
 1. `npm run check` fetches every official source and records a normalized SHA-256 fingerprint.
 2. A changed or unreachable source sets public coverage to `Needs review` and queues review rather than overwriting verified items.
-3. An operator or a high-confidence source adapter reconciles the complete menu against the source.
-4. Only after reconciliation are items published, coverage returns to `Complete`, and the audit timestamps advance.
+3. The same run re-reads each changed source and records a structured diff against
+   what is published — see **Reviewing changes** above. This writes a proposal and
+   nothing else.
+4. An operator accepts the operations they agree with, or reconciles the complete menu by hand.
+5. Only then are items published, coverage returns to `Complete`, and the audit timestamps advance.
 
 Step 4 is enforced by the seed import, not by convention. A restaurant's `auditedAt`
 advancing past the stored value is the operator's record that the menu was actually

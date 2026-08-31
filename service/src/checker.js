@@ -15,7 +15,10 @@ export async function checkMenus(
 
   const results = [];
   for (const restaurant of restaurants) {
-    const checkedAt = new Date().toISOString();
+    // One clock for the whole run, injectable, so a test can order two cycles
+    // unambiguously. Wall-clock time gave consecutive cycles identical
+    // timestamps, which made anything ordered by them a coin flip.
+    const checkedAt = now().toISOString();
 
     // No URL means no fingerprint. Age the record instead of skipping it.
     if (!restaurant.check_url) {
@@ -36,25 +39,14 @@ export async function checkMenus(
     }
 
     try {
-      const fetched = restaurant.extraction_mode === "browser_required"
-        ? { text: await browserFetchImpl(restaurant.check_url), markup: true }
-        : await loadHTTPSource(fetchImpl, restaurant.check_url);
-      // normalize() strips HTML tags. Run against a PDF it deletes almost
-      // everything — a 350KB menu collapsed to a few hundred characters of
-      // binary residue, which is far too weak to notice a menu change. Non-markup
-      // sources are fingerprinted whole instead.
-      const source = fetched.markup ? normalize(fetched.text) : fetched.text;
-      const hash = createHash("sha256").update(source).digest("hex");
+      const fetched = await loadSource(restaurant, { fetchImpl, browserFetchImpl });
+      const { hash, snapshot } = fingerprint(fetched);
       const changed = Boolean(restaurant.source_hash && restaurant.source_hash !== hash);
       await store.recordCheckSuccess({
         restaurantID: restaurant.id,
         checkedAt,
         hash,
-        // A binary source has no readable snapshot worth keeping; record what it
-        // was so a reviewer knows why, rather than storing megabytes of residue.
-        normalizedSource: fetched.markup
-          ? source
-          : `[${fetched.contentType ?? "binary"}, ${source.length} bytes, fingerprinted whole]`,
+        normalizedSource: snapshot,
         changed
       });
       // A PDF or image menu fingerprints like any other source, so an edit to it
@@ -89,12 +81,42 @@ export async function checkMenus(
 export async function fetchSource(
   restaurant, { fetchImpl = fetch, browserFetchImpl = loadBrowserSource } = {}
 ) {
-  const url = restaurant.check_url ?? restaurant.checkURL ?? restaurant.menu_url ?? restaurant.menuURL;
-  if (!url) throw new Error("Restaurant has no source URL");
-  if (restaurant.extraction_mode === "browser_required") return browserFetchImpl(url);
   // Extraction wants the document itself; only the fingerprinting path cares
   // whether it was markup.
-  return (await loadHTTPSource(fetchImpl, url)).text;
+  return (await loadSource(restaurant, { fetchImpl, browserFetchImpl })).text;
+}
+
+// The document as fetched, plus what is needed to fingerprint it. Change
+// detection and change *interpretation* run at different times against the same
+// page, so they must reach it and reduce it identically — otherwise the snapshot
+// a proposal cites would not be the snapshot the checker recorded.
+export async function loadSource(
+  restaurant, { fetchImpl = fetch, browserFetchImpl = loadBrowserSource } = {}
+) {
+  const url = restaurant.check_url ?? restaurant.checkURL ?? restaurant.menu_url ?? restaurant.menuURL;
+  if (!url) throw new Error("Restaurant has no source URL");
+  if (restaurant.extraction_mode === "browser_required") {
+    return { text: await browserFetchImpl(url), markup: true, contentType: "text/html" };
+  }
+  return loadHTTPSource(fetchImpl, url);
+}
+
+// The fingerprint over a fetched source, and the snapshot worth storing beside it.
+export function fingerprint({ text, markup, contentType }) {
+  // normalize() strips HTML tags. Run against a PDF it deletes almost
+  // everything — a 350KB menu collapsed to a few hundred characters of binary
+  // residue, which is far too weak to notice a menu change. Non-markup sources
+  // are fingerprinted whole instead.
+  const source = markup ? normalize(text) : text;
+  return {
+    source,
+    hash: createHash("sha256").update(source).digest("hex"),
+    // A binary source has no readable snapshot worth keeping; record what it was
+    // so a reviewer knows why, rather than storing megabytes of residue.
+    snapshot: markup
+      ? source
+      : `[${contentType || "binary"}, ${source.length} bytes, fingerprinted whole]`
+  };
 }
 
 async function loadHTTPSource(fetchImpl, url) {

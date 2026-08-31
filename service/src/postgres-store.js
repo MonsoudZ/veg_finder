@@ -362,6 +362,259 @@ export class PostgresStore {
     return rowCount > 0;
   }
 
+  // --- Change proposals -----------------------------------------------------
+  // Mirrors SQLiteStore. A detected change becomes a description of what
+  // changed; only acceptChangeProposal turns that description into published
+  // data, and only when a person asks it to.
+
+  async getPublishedItems(restaurantID) {
+    const { rows } = await this.pool.query(`
+      SELECT id, name, description, price, dietary_status, modification_note, source_evidence
+      FROM menu_items WHERE restaurant_id=$1 AND active=TRUE
+      ORDER BY sort_order, name
+    `, [restaurantID]);
+    return rows.map(canonicalDatabaseItem);
+  }
+
+  async ensureSnapshot({ restaurantID, hash, normalizedSource, capturedAt }) {
+    await this.pool.query(`
+      INSERT INTO menu_source_snapshots
+        (id, restaurant_id, source_hash, normalized_source, captured_at)
+      VALUES ($1,$2,$3,$4,$5) ON CONFLICT(restaurant_id, source_hash) DO NOTHING
+    `, [randomUUID(), restaurantID, hash, normalizedSource, capturedAt]);
+    const { rows } = await this.pool.query(
+      "SELECT id FROM menu_source_snapshots WHERE restaurant_id=$1 AND source_hash=$2",
+      [restaurantID, hash]
+    );
+    return rows[0]?.id ?? null;
+  }
+
+  // The state the source was in before the reading a proposal was computed from.
+  // Read from the recorded transition rather than inferred from capture times;
+  // see the note in database.js and migrations/010.
+  async priorSnapshotID(restaurantID, currentHash) {
+    const { rows: [restaurant] } = await this.pool.query(
+      "SELECT source_hash FROM restaurants WHERE id=$1", [restaurantID]
+    );
+    const live = restaurant?.source_hash ?? null;
+
+    let priorHash = live;
+    // Normally a proposal reads the same source the last check fingerprinted, so
+    // what came before it is that check's recorded previous hash. If the page
+    // moved again since, the fingerprint last stored is what this reading
+    // replaces.
+    if (!live || live === currentHash) {
+      const { rows } = await this.pool.query(`
+        SELECT previous_source_hash FROM menu_check_runs
+        WHERE restaurant_id=$1 AND status='changed' AND previous_source_hash IS NOT NULL
+        ORDER BY checked_at DESC LIMIT 1
+      `, [restaurantID]);
+      priorHash = rows[0]?.previous_source_hash ?? null;
+    }
+
+    if (!priorHash || priorHash === currentHash) return null;
+    const { rows } = await this.pool.query(
+      "SELECT id FROM menu_source_snapshots WHERE restaurant_id=$1 AND source_hash=$2",
+      [restaurantID, priorHash]
+    );
+    return rows[0]?.id ?? null;
+  }
+
+  async createChangeProposal({
+    restaurantID, sourceSnapshotID, previousSnapshotID, tier, ambiguities = [],
+    operations = [], createdAt = new Date().toISOString(), note = null
+  }) {
+    const id = randomUUID();
+    const client = await this.pool.connect();
+    try {
+      await client.query("BEGIN");
+      // A fresh reading supersedes whatever was still pending: two pending
+      // proposals against one menu would let a reviewer accept the stale one.
+      await client.query(
+        "DELETE FROM menu_change_proposals WHERE restaurant_id=$1 AND status='pending'",
+        [restaurantID]
+      );
+      await client.query(`
+        INSERT INTO menu_change_proposals (
+          id, restaurant_id, source_snapshot_id, previous_snapshot_id, tier, status,
+          ambiguities, created_at, note
+        ) VALUES ($1,$2,$3,$4,$5,'pending',$6::jsonb,$7,$8)
+      `, [
+        id, restaurantID, sourceSnapshotID, previousSnapshotID, tier,
+        JSON.stringify(ambiguities), createdAt, note
+      ]);
+      for (const [index, operation] of operations.entries()) {
+        await client.query(`
+          INSERT INTO menu_change_operations (
+            id, proposal_id, position, operation, menu_item_id, proposed_name,
+            proposed_description, proposed_price, proposed_dietary_status,
+            proposed_modification_note, evidence, current_item, changed_fields, confidence
+          ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12::jsonb,$13::jsonb,$14)
+        `, [
+          randomUUID(), id, operation.position ?? index, operation.operation,
+          operation.menuItemID ?? null,
+          operation.proposed?.name ?? null,
+          operation.proposed?.description ?? null,
+          operation.proposed?.price ?? null,
+          operation.proposed?.dietaryStatus ?? null,
+          operation.proposed?.modificationNote ?? null,
+          operation.evidence ?? "",
+          operation.current ? JSON.stringify(operation.current) : null,
+          JSON.stringify(operation.changedFields ?? []),
+          operation.confidence ?? "medium"
+        ]);
+      }
+      await client.query("COMMIT");
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally {
+      client.release();
+    }
+    return id;
+  }
+
+  async listChangeProposals({ restaurantID, status } = {}) {
+    const conditions = ["TRUE"];
+    const parameters = [];
+    if (restaurantID) conditions.push(`p.restaurant_id = $${parameters.push(restaurantID)}`);
+    if (status) conditions.push(`p.status = $${parameters.push(status)}`);
+    const { rows } = await this.pool.query(`
+      SELECT p.*, r.name AS restaurant_name, r.menu_url,
+             (SELECT COUNT(*) FROM menu_change_operations o WHERE o.proposal_id = p.id)
+               AS operation_count
+      FROM menu_change_proposals p JOIN restaurants r ON r.id = p.restaurant_id
+      WHERE ${conditions.join(" AND ")}
+      ORDER BY p.created_at DESC, r.name
+    `, parameters);
+    return rows.map(changeProposalRow);
+  }
+
+  async getChangeProposal(id) {
+    const { rows } = await this.pool.query(`
+      SELECT p.*, r.name AS restaurant_name, r.menu_url,
+             (SELECT COUNT(*) FROM menu_change_operations o WHERE o.proposal_id = p.id)
+               AS operation_count
+      FROM menu_change_proposals p JOIN restaurants r ON r.id = p.restaurant_id
+      WHERE p.id=$1
+    `, [id]);
+    const row = rows[0];
+    if (!row) return null;
+
+    const { rows: operations } = await this.pool.query(
+      "SELECT * FROM menu_change_operations WHERE proposal_id=$1 ORDER BY position, id", [id]
+    );
+    const { rows: snapshots } = await this.pool.query(`
+      SELECT id, source_hash, normalized_source, captured_at
+      FROM menu_source_snapshots WHERE id = ANY($1::uuid[])
+    `, [[row.source_snapshot_id, row.previous_snapshot_id].filter(Boolean)]);
+    const byID = new Map(snapshots.map((snapshot) => [snapshot.id, snapshot]));
+
+    return {
+      ...changeProposalRow(row),
+      operations: operations.map(changeOperationRow),
+      newSource: snapshotRow(byID.get(row.source_snapshot_id) ?? null),
+      oldSource: snapshotRow(byID.get(row.previous_snapshot_id) ?? null),
+      published: await this.getPublishedItems(row.restaurant_id)
+    };
+  }
+
+  async rejectChangeProposal(id, { reviewedBy = null, note = null } = {}) {
+    const { rowCount } = await this.pool.query(`
+      UPDATE menu_change_proposals
+      SET status='rejected', reviewed_at=NOW(), reviewed_by=$1, note=COALESCE($2, note)
+      WHERE id=$3 AND status='pending'
+    `, [reviewedBy, note, id]);
+    if (rowCount > 0) return { status: "rejected" };
+    const { rowCount: exists } = await this.pool.query(
+      "SELECT 1 FROM menu_change_proposals WHERE id=$1", [id]
+    );
+    return { status: exists > 0 ? "conflict" : "missing" };
+  }
+
+  // Publishing a reviewed diff, in one transaction. Either every accepted
+  // operation lands with its version history and the restaurant's audit
+  // advances, or nothing does.
+  async acceptChangeProposal(id, {
+    reviewedBy = null, operationIDs = null, note = null, coverageStatus = "Complete"
+  } = {}) {
+    const now = new Date().toISOString();
+    const client = await this.pool.connect();
+    try {
+      await client.query("BEGIN");
+      // FOR UPDATE, not a plain read: two reviewers clicking accept at the same
+      // moment must not both publish.
+      const { rows } = await client.query(
+        "SELECT * FROM menu_change_proposals WHERE id=$1 FOR UPDATE", [id]
+      );
+      const proposal = rows[0];
+      if (!proposal) {
+        await client.query("ROLLBACK");
+        return { status: "missing" };
+      }
+      if (proposal.status !== "pending") {
+        await client.query("ROLLBACK");
+        return { status: "conflict" };
+      }
+
+      const { rows: operations } = await client.query(
+        "SELECT * FROM menu_change_operations WHERE proposal_id=$1 ORDER BY position, id", [id]
+      );
+      const chosen = operationIDs === null
+        ? new Set(operations.map((operation) => operation.id))
+        : new Set(operationIDs);
+      const unknown = [...chosen].filter(
+        (operationID) => !operations.some((operation) => operation.id === operationID)
+      );
+      // An id from another proposal means the caller is working from a stale
+      // page; applying the subset it did recognise would publish something
+      // nobody chose.
+      if (unknown.length > 0) {
+        await client.query("ROLLBACK");
+        return { status: "unknown_operations", unknown };
+      }
+
+      const applied = await applyChangeOperations(
+        client, proposal.restaurant_id,
+        operations.filter((operation) => chosen.has(operation.id)), now
+      );
+
+      for (const operation of operations) {
+        await client.query("UPDATE menu_change_operations SET decision=$1 WHERE id=$2", [
+          chosen.has(operation.id) ? "applied" : "skipped", operation.id
+        ]);
+      }
+
+      // Reviewing a diff against the official source *is* an audit, so this
+      // advances audited_at and clears the review the checker raised, exactly as
+      // reconcileRestaurant does. A reviewer who is not satisfied can accept the
+      // safe operations and pass coverageStatus 'Needs review' to stay queued.
+      await client.query(`
+        UPDATE restaurants SET
+          coverage_status=$1, audited_at=$2, updated_at=$2,
+          review_required=($1 = 'Needs review'), check_error=NULL
+        WHERE id=$3
+      `, [coverageStatus, now, proposal.restaurant_id]);
+
+      await client.query(`
+        UPDATE menu_change_proposals
+        SET status='accepted', reviewed_at=$1, reviewed_by=$2, note=COALESCE($3, note)
+        WHERE id=$4
+      `, [now, reviewedBy, note, id]);
+
+      await client.query("COMMIT");
+      return {
+        status: "accepted", restaurantID: proposal.restaurant_id,
+        applied: applied.length, skipped: operations.length - applied.length
+      };
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
   async getCheckTarget(id) {
     const { rows } = await this.pool.query(`
       SELECT id, name, COALESCE(check_url, menu_url) AS check_url, claim_url, source_hash,
@@ -384,10 +637,19 @@ export class PostgresStore {
     const client = await this.pool.connect();
     try {
       await client.query("BEGIN");
+      // Read inside the transaction that replaces it, so what is recorded as the
+      // previous hash is exactly the value this run overwrote.
+      const { rows: [live] } = await client.query(
+        "SELECT source_hash FROM restaurants WHERE id=$1", [restaurantID]
+      );
       await client.query(`
-        INSERT INTO menu_check_runs (id, restaurant_id, checked_at, status, source_hash)
-        VALUES ($1,$2,$3,$4,$5)
-      `, [randomUUID(), restaurantID, checkedAt, changed ? "changed" : "ok", hash]);
+        INSERT INTO menu_check_runs
+          (id, restaurant_id, checked_at, status, source_hash, previous_source_hash)
+        VALUES ($1,$2,$3,$4,$5,$6)
+      `, [
+        randomUUID(), restaurantID, checkedAt, changed ? "changed" : "ok", hash,
+        live?.source_hash ?? null
+      ]);
       await client.query(`
         INSERT INTO menu_source_snapshots
           (id, restaurant_id, source_hash, normalized_source, captured_at)
@@ -594,4 +856,164 @@ function canonicalDatabaseItem(item) {
 
 function iso(value) {
   return value instanceof Date ? value.toISOString() : value;
+}
+
+// Mirrors applyChangeOperations in database.js: applies exactly the operations a
+// reviewer accepted and records each in the item's version history. Incremental
+// on purpose — a dish nobody proposed a change to is left alone, because the
+// diff only claims to describe what moved. Runs inside the caller's transaction.
+async function applyChangeOperations(client, restaurantID, operations, recordedAt) {
+  const applied = [];
+
+  for (const operation of operations) {
+    const { rows: [previous] } = await client.query(
+      "SELECT * FROM menu_items WHERE id=$1 AND restaurant_id=$2",
+      [operation.menu_item_id, restaurantID]
+    );
+
+    if (operation.operation === "retire") {
+      // Already gone. Accepting a retirement twice has nothing left to do and is
+      // not worth failing the whole transaction over.
+      if (!previous || previous.active === false) continue;
+      await client.query(
+        "UPDATE menu_items SET active=FALSE, updated_at=$1 WHERE id=$2", [recordedAt, previous.id]
+      );
+      await client.query(`
+        INSERT INTO menu_item_versions
+          (id, menu_item_id, restaurant_id, item_snapshot, recorded_at, change_kind)
+        VALUES ($1,$2,$3,$4::jsonb,$5,'retired')
+      `, [
+        randomUUID(), previous.id, restaurantID,
+        JSON.stringify(canonicalDatabaseItem(previous)), recordedAt
+      ]);
+      applied.push(operation);
+      continue;
+    }
+
+    const item = {
+      id: operation.menu_item_id,
+      name: operation.proposed_name,
+      description: operation.proposed_description ?? "",
+      price: operation.proposed_price,
+      dietaryStatus: operation.proposed_dietary_status,
+      modificationNote: operation.proposed_modification_note ?? null,
+      sourceEvidence: operation.evidence ?? ""
+    };
+    // A re-added dish keeps the position it held before; a genuinely new one goes
+    // to the end rather than displacing the menu a reviewer already knows.
+    const sortOrder = previous?.sort_order ?? await nextSortOrder(client, restaurantID);
+    await client.query(`
+      INSERT INTO menu_items (
+        id, restaurant_id, name, description, price, dietary_status,
+        modification_note, source_evidence, sort_order, last_verified_at, active, updated_at
+      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,TRUE,$10)
+      ON CONFLICT(id) DO UPDATE SET
+        name=EXCLUDED.name, description=EXCLUDED.description, price=EXCLUDED.price,
+        dietary_status=EXCLUDED.dietary_status,
+        modification_note=EXCLUDED.modification_note,
+        source_evidence=EXCLUDED.source_evidence,
+        last_verified_at=EXCLUDED.last_verified_at, updated_at=EXCLUDED.updated_at,
+        active=TRUE
+    `, [
+      item.id, restaurantID, item.name, item.description, item.price, item.dietaryStatus,
+      item.modificationNote, item.sourceEvidence, sortOrder, recordedAt
+    ]);
+
+    const snapshot = JSON.stringify(canonicalItem(item));
+    const wasLive = Boolean(previous) && previous.active !== false;
+    // Re-publishing a previously retired item is a change even when its content
+    // is byte-identical, so the flag matters as much as the snapshot does.
+    if (!wasLive || JSON.stringify(canonicalDatabaseItem(previous)) !== snapshot) {
+      await client.query(`
+        INSERT INTO menu_item_versions
+          (id, menu_item_id, restaurant_id, item_snapshot, recorded_at, change_kind)
+        VALUES ($1,$2,$3,$4::jsonb,$5,$6)
+      `, [
+        randomUUID(), item.id, restaurantID, snapshot, recordedAt,
+        wasLive ? "updated" : "published"
+      ]);
+    }
+    applied.push(operation);
+  }
+
+  return applied;
+}
+
+async function nextSortOrder(client, restaurantID) {
+  const { rows: [row] } = await client.query(
+    "SELECT COALESCE(MAX(sort_order), -1) + 1 AS next FROM menu_items WHERE restaurant_id=$1",
+    [restaurantID]
+  );
+  return Number(row.next);
+}
+
+function changeProposalRow(row) {
+  return {
+    id: row.id,
+    restaurantID: row.restaurant_id,
+    restaurantName: row.restaurant_name,
+    menuURL: row.menu_url,
+    tier: row.tier,
+    status: row.status,
+    ambiguities: parseJSONColumn(row.ambiguities, []),
+    operationCount: Number(row.operation_count ?? 0),
+    createdAt: iso(row.created_at),
+    reviewedAt: iso(row.reviewed_at),
+    reviewedBy: row.reviewed_by,
+    note: row.note
+  };
+}
+
+function changeOperationRow(row) {
+  return {
+    id: row.id,
+    operation: row.operation,
+    position: row.position,
+    menuItemID: row.menu_item_id,
+    // A retirement proposes no values; it proposes that existing ones stop being
+    // published. Returning an object of nulls would read as "rename it to null".
+    proposed: row.operation === "retire" ? null : {
+      id: row.menu_item_id,
+      name: row.proposed_name,
+      description: row.proposed_description ?? "",
+      price: row.proposed_price,
+      dietaryStatus: row.proposed_dietary_status,
+      modificationNote: row.proposed_modification_note ?? null
+    },
+    current: parseJSONColumn(row.current_item, null),
+    changedFields: parseJSONColumn(row.changed_fields, []),
+    evidence: row.evidence,
+    confidence: row.confidence,
+    decision: row.decision
+  };
+}
+
+// A whole menu page, and for a document source a placeholder standing in for one.
+// Capped because a reviewer comparing two readings needs to see the text, not
+// receive 350KB of it down a review page that has to stay usable.
+const SOURCE_PREVIEW_LIMIT = 20_000;
+
+function snapshotRow(row) {
+  if (!row) return null;
+  const source = row.normalized_source ?? "";
+  return {
+    id: row.id,
+    hash: row.source_hash,
+    capturedAt: iso(row.captured_at),
+    length: source.length,
+    truncated: source.length > SOURCE_PREVIEW_LIMIT,
+    source: source.slice(0, SOURCE_PREVIEW_LIMIT)
+  };
+}
+
+// jsonb comes back parsed; the SQLite store hands back TEXT. One reader for both
+// keeps the two stores returning the same shape.
+function parseJSONColumn(value, fallback) {
+  if (value == null) return fallback;
+  if (typeof value !== "string") return value;
+  try {
+    return JSON.parse(value);
+  } catch {
+    return fallback;
+  }
 }

@@ -6,6 +6,7 @@ import { timingSafeEqual } from "node:crypto";
 import { validateMenuItems, validateRestaurant, COVERAGE_STATUSES } from "./catalog-input.js";
 import { createExtractionClient } from "./llm-extraction.js";
 import { autoPublishTiers, proposeMenu } from "./proposals.js";
+import { proposeChangesForResults, proposeMenuChanges } from "./menu-changes.js";
 import { checkMenus } from "./checker.js";
 import { announceCheckResults, createNotifier } from "./notifier.js";
 import { openStore } from "./store.js";
@@ -50,6 +51,10 @@ const REVIEW_PAGE = readFileSync(
 );
 const RECONCILE_PATH = /^\/internal\/restaurants\/([0-9a-f-]{36})\/reconcile$/i;
 const PROPOSE_PATH = /^\/internal\/restaurants\/([0-9a-f-]{36})\/propose$/i;
+const PROPOSE_CHANGES_PATH = /^\/internal\/restaurants\/([0-9a-f-]{36})\/propose-changes$/i;
+const CHANGE_PROPOSAL_PATH = /^\/internal\/review-queue\/([0-9a-f-]{36})$/i;
+const CHANGE_ACCEPT_PATH = /^\/internal\/review-queue\/([0-9a-f-]{36})\/accept$/i;
+const CHANGE_REJECT_PATH = /^\/internal\/review-queue\/([0-9a-f-]{36})\/reject$/i;
 
 async function handleRequest(request, response) {
   const url = new URL(request.url, `http://${request.headers.host ?? `${host}:${port}`}`);
@@ -79,7 +84,93 @@ async function handleRequest(request, response) {
     }
 
     if (request.method === "GET" && url.pathname === "/internal/review-queue") {
-      return json(response, 200, { restaurants: await store.getReviewQueue() }, false);
+      // `restaurants` is what the checker demoted — the fact that something
+      // changed. `proposals` is what changed, where it could be worked out.
+      return json(response, 200, {
+        restaurants: await store.getReviewQueue(),
+        proposals: await store.listChangeProposals({ status: "pending" })
+      }, false);
+    }
+
+    const proposalDetail = request.method === "GET" && url.pathname.match(CHANGE_PROPOSAL_PATH);
+    if (proposalDetail) {
+      const proposal = await store.getChangeProposal(proposalDetail[1].toLowerCase());
+      if (!proposal) return json(response, 404, { error: "Unknown proposal" }, false);
+      return json(response, 200, { proposal }, false);
+    }
+
+    const accept = request.method === "POST" && url.pathname.match(CHANGE_ACCEPT_PATH);
+    if (accept) {
+      const body = await readJSONBody(request);
+      if (body.error) return json(response, body.status, { error: body.error }, false);
+
+      // Accepting publishes dietary data, and an unattributed publish defeats
+      // the point of keeping a review trail at all.
+      const reviewedBy = typeof body.value?.reviewedBy === "string" && body.value.reviewedBy.trim()
+        ? body.value.reviewedBy.trim().slice(0, 200)
+        : null;
+      if (!reviewedBy) {
+        return json(response, 422, { error: "reviewedBy is required to accept a proposal" }, false);
+      }
+      const coverageStatus = body.value?.coverageStatus ?? "Complete";
+      if (!COVERAGE_STATUSES.includes(coverageStatus)) {
+        return json(response, 422, {
+          error: `coverageStatus must be one of: ${COVERAGE_STATUSES.join(", ")}`
+        }, false);
+      }
+      // Absent means "every operation". An empty array means "none of them",
+      // which is a legitimate way to say the diff was read and nothing in it
+      // should publish, while still recording the audit.
+      const operationIDs = body.value?.operationIds;
+      if (operationIDs != null
+        && (!Array.isArray(operationIDs) || operationIDs.some((id) => typeof id !== "string"))) {
+        return json(response, 422, { error: "operationIds must be an array of strings" }, false);
+      }
+
+      const result = await store.acceptChangeProposal(accept[1].toLowerCase(), {
+        reviewedBy,
+        operationIDs: operationIDs ?? null,
+        note: typeof body.value?.note === "string" ? body.value.note.slice(0, 2_000) : null,
+        coverageStatus
+      });
+      if (result.status === "missing") {
+        return json(response, 404, { error: "Unknown proposal" }, false);
+      }
+      if (result.status === "conflict") {
+        return json(response, 409, { error: "Proposal is not pending" }, false);
+      }
+      if (result.status === "unknown_operations") {
+        return json(response, 422, {
+          error: "operationIds must all belong to this proposal", details: result.unknown
+        }, false);
+      }
+      return json(response, 200, {
+        ok: true,
+        applied: result.applied,
+        skipped: result.skipped,
+        restaurant: await store.getRestaurant(result.restaurantID)
+      }, false);
+    }
+
+    const reject = request.method === "POST" && url.pathname.match(CHANGE_REJECT_PATH);
+    if (reject) {
+      const body = await readJSONBody(request);
+      if (body.error) return json(response, body.status, { error: body.error }, false);
+      const result = await store.rejectChangeProposal(reject[1].toLowerCase(), {
+        reviewedBy: typeof body.value?.reviewedBy === "string"
+          ? body.value.reviewedBy.trim().slice(0, 200) || null
+          : null,
+        note: typeof body.value?.note === "string" ? body.value.note.slice(0, 2_000) : null
+      });
+      if (result.status === "missing") {
+        return json(response, 404, { error: "Unknown proposal" }, false);
+      }
+      if (result.status === "conflict") {
+        return json(response, 409, { error: "Proposal is not pending" }, false);
+      }
+      // Rejecting settles the proposal, not the restaurant: its source still
+      // changed, so it stays in the review queue until somebody reconciles it.
+      return json(response, 200, { ok: true }, false);
     }
 
     if (request.method === "POST" && url.pathname === "/internal/restaurants") {
@@ -130,6 +221,15 @@ async function handleRequest(request, response) {
       return json(response, 200, await proposeMenu(store, target, {
         modelClient, tiers: autoPublishTiers(process.env.AUTO_PUBLISH_TIERS)
       }), false);
+    }
+
+    const proposeChanges = request.method === "POST" && url.pathname.match(PROPOSE_CHANGES_PATH);
+    if (proposeChanges) {
+      const target = await store.getCheckTarget(proposeChanges[1].toLowerCase());
+      if (!target) return json(response, 404, { error: "Unknown restaurant" }, false);
+      // Re-reads the official source and diffs it against what is published.
+      // Writes a proposal and nothing else — publishing stays a separate act.
+      return json(response, 200, await proposeMenuChanges(store, target, { modelClient }), false);
     }
 
     const reconcile = request.method === "POST" && url.pathname.match(RECONCILE_PATH);
@@ -254,6 +354,13 @@ async function runScheduledCheck() {
     const failed = results.filter((result) => result.status === "failed").length;
     const changed = results.filter((result) => result.status === "changed").length;
     console.log(`Menu check complete: ${changed} changed, ${failed} failed.`);
+    // Detection and interpretation stay separate steps. The model client is
+    // deliberately not passed: a scheduled cycle covering every changed source
+    // must not be able to spend money on its own.
+    const proposals = await proposeChangesForResults(store, results);
+    if (proposals.length > 0) {
+      console.log(`Recorded ${proposals.length} change proposal(s) for review.`);
+    }
     await announceCheckResults(store, results, { notifier });
   } catch (error) {
     // Timers own this promise, so an escaping rejection would end the process.

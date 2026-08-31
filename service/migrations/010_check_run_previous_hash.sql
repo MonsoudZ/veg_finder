@@ -1,0 +1,11 @@
+-- Snapshots are deduplicated by (restaurant_id, source_hash), so a source that
+-- returns to an earlier state reuses that snapshot row and keeps its original
+-- captured_at. Ordering snapshots by capture time therefore does not order them
+-- by when they were the live source: for A → B → A → C, the row captured most
+-- recently before C is B, but the state C actually replaced was A.
+--
+-- The check run is the only place that knows the answer for certain, because it
+-- is holding both hashes at the moment the transition happens. Recording it here
+-- means the review page shows the transition that really occurred rather than
+-- one inferred afterwards from timestamps.
+ALTER TABLE menu_check_runs ADD COLUMN IF NOT EXISTS previous_source_hash TEXT;

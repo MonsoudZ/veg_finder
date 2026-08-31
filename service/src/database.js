@@ -64,6 +64,10 @@ function migrate(database) {
       checked_at TEXT NOT NULL,
       status TEXT NOT NULL CHECK (status IN ('ok', 'changed', 'failed')),
       source_hash TEXT,
+      -- The hash this run replaced. See migrations/010: it is the only reliable
+      -- record of which state a change actually moved away from, because
+      -- snapshots dedupe by hash and so cannot be ordered by when they were live.
+      previous_source_hash TEXT,
       error TEXT
     );
 
@@ -96,6 +100,45 @@ function migrate(database) {
       item_snapshot TEXT NOT NULL,
       recorded_at TEXT NOT NULL,
       change_kind TEXT NOT NULL CHECK (change_kind IN ('published', 'updated', 'retired'))
+    );
+
+    -- One reading of one changed source, and the differences it found from what
+    -- is published. Mirrors migrations/009. Distinct from menu_item_proposals
+    -- above, which drafts a menu that has none published yet; this describes
+    -- what moved since the last time a person agreed to one.
+    CREATE TABLE IF NOT EXISTS menu_change_proposals (
+      id TEXT PRIMARY KEY,
+      restaurant_id TEXT NOT NULL REFERENCES restaurants(id) ON DELETE CASCADE,
+      source_snapshot_id TEXT REFERENCES menu_source_snapshots(id) ON DELETE SET NULL,
+      previous_snapshot_id TEXT REFERENCES menu_source_snapshots(id) ON DELETE SET NULL,
+      tier TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'pending'
+        CHECK (status IN ('pending', 'accepted', 'rejected')),
+      ambiguities TEXT NOT NULL DEFAULT '[]',
+      created_at TEXT NOT NULL,
+      reviewed_at TEXT,
+      reviewed_by TEXT,
+      note TEXT
+    );
+
+    CREATE TABLE IF NOT EXISTS menu_change_operations (
+      id TEXT PRIMARY KEY,
+      proposal_id TEXT NOT NULL REFERENCES menu_change_proposals(id) ON DELETE CASCADE,
+      position INTEGER NOT NULL DEFAULT 0,
+      operation TEXT NOT NULL CHECK (operation IN ('add', 'update', 'retire')),
+      menu_item_id TEXT,
+      proposed_name TEXT,
+      proposed_description TEXT,
+      proposed_price TEXT,
+      proposed_dietary_status TEXT,
+      proposed_modification_note TEXT,
+      evidence TEXT NOT NULL DEFAULT '',
+      current_item TEXT,
+      changed_fields TEXT NOT NULL DEFAULT '[]',
+      confidence TEXT NOT NULL DEFAULT 'medium'
+        CHECK (confidence IN ('high', 'medium', 'low')),
+      decision TEXT NOT NULL DEFAULT 'pending'
+        CHECK (decision IN ('pending', 'applied', 'skipped'))
     );
 
   `);
@@ -146,6 +189,14 @@ function migrate(database) {
     database.exec("ALTER TABLE restaurants ADD COLUMN updated_at TEXT");
     database.exec("UPDATE restaurants SET updated_at = COALESCE(audited_at, verified_at)");
   }
+  const checkRunColumns = new Set(
+    database.prepare("PRAGMA table_info(menu_check_runs)").all().map((column) => column.name)
+  );
+  if (!checkRunColumns.has("previous_source_hash")) {
+    // Left NULL for runs recorded before this column existed. A proposal against
+    // one of those has no recorded transition and says so, rather than guessing.
+    database.exec("ALTER TABLE menu_check_runs ADD COLUMN previous_source_hash TEXT");
+  }
   const itemColumns = new Set(database.prepare("PRAGMA table_info(menu_items)").all().map((column) => column.name));
   if (!itemColumns.has("last_verified_at")) {
     database.exec("ALTER TABLE menu_items ADD COLUMN last_verified_at TEXT");
@@ -168,6 +219,12 @@ function migrate(database) {
       ON menu_item_proposals(restaurant_id, status);
     CREATE INDEX IF NOT EXISTS menu_item_proposals_pending
       ON menu_item_proposals(status, proposed_at);
+    CREATE INDEX IF NOT EXISTS menu_change_proposals_pending
+      ON menu_change_proposals(status, created_at);
+    CREATE INDEX IF NOT EXISTS menu_change_proposals_restaurant
+      ON menu_change_proposals(restaurant_id, status);
+    CREATE INDEX IF NOT EXISTS menu_change_operations_proposal
+      ON menu_change_operations(proposal_id, position);
   `);
 }
 
@@ -645,6 +702,248 @@ export class SQLiteStore {
     return result.changes > 0;
   }
 
+  // --- Change proposals -----------------------------------------------------
+  // A detected change becomes a description of what changed, and only a person
+  // turns that description into published data. Everything below reads and
+  // writes proposals; only acceptChangeProposal touches menu_items.
+
+  async getPublishedItems(restaurantID) {
+    return this.database.prepare(`
+      SELECT id, name, description, price, dietary_status, modification_note, source_evidence
+      FROM menu_items WHERE restaurant_id = ? AND active = 1
+      ORDER BY sort_order, name COLLATE NOCASE
+    `).all(restaurantID).map(canonicalDatabaseItem);
+  }
+
+  async ensureSnapshot({ restaurantID, hash, normalizedSource, capturedAt }) {
+    this.database.prepare(`
+      INSERT OR IGNORE INTO menu_source_snapshots
+        (id, restaurant_id, source_hash, normalized_source, captured_at)
+      VALUES (?, ?, ?, ?, ?)
+    `).run(randomUUID(), restaurantID, hash, normalizedSource, capturedAt);
+    return this.database.prepare(
+      "SELECT id FROM menu_source_snapshots WHERE restaurant_id = ? AND source_hash = ?"
+    ).get(restaurantID, hash)?.id ?? null;
+  }
+
+  // The state the source was in before the reading a proposal was computed from.
+  //
+  // This cannot be inferred from the snapshots table. Snapshots dedupe by hash
+  // and keep their first capture time, so for A → B → A → C the most recently
+  // captured snapshot before C is B, while the state C actually replaced was A.
+  // The transition is read from where it was recorded at detection time instead.
+  async priorSnapshotID(restaurantID, currentHash) {
+    const live = this.database.prepare(
+      "SELECT source_hash FROM restaurants WHERE id = ?"
+    ).get(restaurantID)?.source_hash ?? null;
+
+    // Two cases. Normally a proposal reads the same source the last check
+    // fingerprinted, so what came before it is that check's recorded previous
+    // hash. If the page moved again between the check and this reading, the
+    // fingerprint the checker last stored *is* the state this reading replaces.
+    const priorHash = live && live !== currentHash
+      ? live
+      : this.database.prepare(`
+          SELECT previous_source_hash FROM menu_check_runs
+          WHERE restaurant_id = ? AND status = 'changed' AND previous_source_hash IS NOT NULL
+          ORDER BY checked_at DESC, rowid DESC LIMIT 1
+        `).get(restaurantID)?.previous_source_hash ?? null;
+
+    // No recorded transition, or the source came back to where it started.
+    // Showing a before that equals the after would read as a change that is not
+    // one; saying nothing is recorded is the honest answer.
+    if (!priorHash || priorHash === currentHash) return null;
+    return this.database.prepare(
+      "SELECT id FROM menu_source_snapshots WHERE restaurant_id = ? AND source_hash = ?"
+    ).get(restaurantID, priorHash)?.id ?? null;
+  }
+
+  // A fresh reading supersedes whatever was still pending for that restaurant.
+  // Two pending proposals against the same menu would let a reviewer accept a
+  // stale diff over a current one.
+  async createChangeProposal({
+    restaurantID, sourceSnapshotID, previousSnapshotID, tier, ambiguities = [],
+    operations = [], createdAt = new Date().toISOString(), note = null
+  }) {
+    const id = randomUUID();
+    this.database.exec("BEGIN IMMEDIATE");
+    try {
+      this.database.prepare(
+        "DELETE FROM menu_change_proposals WHERE restaurant_id = ? AND status = 'pending'"
+      ).run(restaurantID);
+      this.database.prepare(`
+        INSERT INTO menu_change_proposals (
+          id, restaurant_id, source_snapshot_id, previous_snapshot_id, tier, status,
+          ambiguities, created_at, note
+        ) VALUES (?, ?, ?, ?, ?, 'pending', ?, ?, ?)
+      `).run(
+        id, restaurantID, sourceSnapshotID, previousSnapshotID, tier,
+        JSON.stringify(ambiguities), createdAt, note
+      );
+      const insert = this.database.prepare(`
+        INSERT INTO menu_change_operations (
+          id, proposal_id, position, operation, menu_item_id, proposed_name,
+          proposed_description, proposed_price, proposed_dietary_status,
+          proposed_modification_note, evidence, current_item, changed_fields, confidence
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `);
+      operations.forEach((operation, index) => {
+        insert.run(
+          randomUUID(), id, operation.position ?? index, operation.operation,
+          operation.menuItemID ?? null,
+          operation.proposed?.name ?? null,
+          operation.proposed?.description ?? null,
+          operation.proposed?.price ?? null,
+          operation.proposed?.dietaryStatus ?? null,
+          operation.proposed?.modificationNote ?? null,
+          operation.evidence ?? "",
+          operation.current ? JSON.stringify(operation.current) : null,
+          JSON.stringify(operation.changedFields ?? []),
+          operation.confidence ?? "medium"
+        );
+      });
+      this.database.exec("COMMIT");
+    } catch (error) {
+      this.database.exec("ROLLBACK");
+      throw error;
+    }
+    return id;
+  }
+
+  async listChangeProposals({ restaurantID, status } = {}) {
+    const where = ["1 = 1"];
+    const parameters = [];
+    if (restaurantID) { where.push("p.restaurant_id = ?"); parameters.push(restaurantID); }
+    if (status) { where.push("p.status = ?"); parameters.push(status); }
+    return this.database.prepare(`
+      SELECT p.*, r.name AS restaurant_name, r.menu_url,
+             (SELECT COUNT(*) FROM menu_change_operations o WHERE o.proposal_id = p.id)
+               AS operation_count
+      FROM menu_change_proposals p JOIN restaurants r ON r.id = p.restaurant_id
+      WHERE ${where.join(" AND ")}
+      ORDER BY p.created_at DESC, r.name COLLATE NOCASE
+    `).all(...parameters).map(changeProposalRow);
+  }
+
+  async getChangeProposal(id) {
+    const row = this.database.prepare(`
+      SELECT p.*, r.name AS restaurant_name, r.menu_url,
+             (SELECT COUNT(*) FROM menu_change_operations o WHERE o.proposal_id = p.id)
+               AS operation_count
+      FROM menu_change_proposals p JOIN restaurants r ON r.id = p.restaurant_id
+      WHERE p.id = ?
+    `).get(id);
+    if (!row) return null;
+
+    const operations = this.database.prepare(
+      "SELECT * FROM menu_change_operations WHERE proposal_id = ? ORDER BY position, id"
+    ).all(id).map(changeOperationRow);
+    const snapshot = this.database.prepare(
+      "SELECT id, source_hash, normalized_source, captured_at FROM menu_source_snapshots WHERE id = ?"
+    );
+    return {
+      ...changeProposalRow(row),
+      operations,
+      newSource: snapshotRow(row.source_snapshot_id ? snapshot.get(row.source_snapshot_id) : null),
+      oldSource: snapshotRow(row.previous_snapshot_id ? snapshot.get(row.previous_snapshot_id) : null),
+      published: await this.getPublishedItems(row.restaurant_id)
+    };
+  }
+
+  async rejectChangeProposal(id, { reviewedBy = null, note = null } = {}) {
+    const result = this.database.prepare(`
+      UPDATE menu_change_proposals
+      SET status = 'rejected', reviewed_at = ?, reviewed_by = ?, note = COALESCE(?, note)
+      WHERE id = ? AND status = 'pending'
+    `).run(new Date().toISOString(), reviewedBy, note, id);
+    if (result.changes > 0) return { status: "rejected" };
+    return { status: this.changeProposalExists(id) ? "conflict" : "missing" };
+  }
+
+  changeProposalExists(id) {
+    return Boolean(this.database.prepare("SELECT 1 FROM menu_change_proposals WHERE id = ?").get(id));
+  }
+
+  // Publishing a reviewed diff, in one transaction. Either every accepted
+  // operation lands with its version history and the restaurant's audit
+  // advances, or nothing does — a half-applied menu is a menu that lies.
+  async acceptChangeProposal(id, {
+    reviewedBy = null, operationIDs = null, note = null, coverageStatus = "Complete"
+  } = {}) {
+    const now = new Date().toISOString();
+    this.database.exec("BEGIN IMMEDIATE");
+    try {
+      const proposal = this.database.prepare(
+        "SELECT * FROM menu_change_proposals WHERE id = ?"
+      ).get(id);
+      if (!proposal) {
+        this.database.exec("ROLLBACK");
+        return { status: "missing" };
+      }
+      // Checked inside the transaction, not before it: two reviewers clicking
+      // accept at the same moment must not both publish.
+      if (proposal.status !== "pending") {
+        this.database.exec("ROLLBACK");
+        return { status: "conflict" };
+      }
+
+      const operations = this.database.prepare(
+        "SELECT * FROM menu_change_operations WHERE proposal_id = ? ORDER BY position, id"
+      ).all(id);
+      const chosen = operationIDs === null
+        ? new Set(operations.map((operation) => operation.id))
+        : new Set(operationIDs);
+      const unknown = [...chosen].filter(
+        (operationID) => !operations.some((operation) => operation.id === operationID)
+      );
+      // An id that belongs to another proposal means the caller is working from
+      // a stale page. Applying the subset it did recognise would publish
+      // something nobody chose.
+      if (unknown.length > 0) {
+        this.database.exec("ROLLBACK");
+        return { status: "unknown_operations", unknown };
+      }
+
+      const applied = applyChangeOperations(
+        this.database, proposal.restaurant_id,
+        operations.filter((operation) => chosen.has(operation.id)), now
+      );
+
+      for (const operation of operations) {
+        this.database.prepare("UPDATE menu_change_operations SET decision = ? WHERE id = ?")
+          .run(chosen.has(operation.id) ? "applied" : "skipped", operation.id);
+      }
+
+      // Reviewing a diff against the official source *is* an audit, so this
+      // advances audited_at and clears the review the checker raised — the same
+      // rule reconcileRestaurant follows. A reviewer who is not satisfied can
+      // accept the safe operations and keep the restaurant in the queue by
+      // passing coverageStatus 'Needs review'.
+      this.database.prepare(`
+        UPDATE restaurants SET
+          coverage_status = ?, audited_at = ?, updated_at = ?,
+          review_required = CASE WHEN ? = 'Needs review' THEN 1 ELSE 0 END,
+          check_error = NULL
+        WHERE id = ?
+      `).run(coverageStatus, now, now, coverageStatus, proposal.restaurant_id);
+
+      this.database.prepare(`
+        UPDATE menu_change_proposals
+        SET status = 'accepted', reviewed_at = ?, reviewed_by = ?, note = COALESCE(?, note)
+        WHERE id = ?
+      `).run(now, reviewedBy, note, id);
+
+      this.database.exec("COMMIT");
+      return {
+        status: "accepted", restaurantID: proposal.restaurant_id,
+        applied: applied.length, skipped: operations.length - applied.length
+      };
+    } catch (error) {
+      this.database.exec("ROLLBACK");
+      throw error;
+    }
+  }
+
   async getCheckTarget(id) {
     return this.database.prepare(`
       SELECT id, name, COALESCE(check_url, menu_url) AS check_url, claim_url, source_hash,
@@ -664,10 +963,18 @@ export class SQLiteStore {
   async recordCheckSuccess({ restaurantID, checkedAt, hash, normalizedSource, changed }) {
     this.database.exec("BEGIN IMMEDIATE");
     try {
+      // Read inside the transaction that replaces it, so what is recorded as the
+      // previous hash is exactly the value this run overwrote.
+      const previousHash = this.database.prepare(
+        "SELECT source_hash FROM restaurants WHERE id = ?"
+      ).get(restaurantID)?.source_hash ?? null;
       this.database.prepare(`
-        INSERT INTO menu_check_runs (id, restaurant_id, checked_at, status, source_hash)
-        VALUES (?, ?, ?, ?, ?)
-      `).run(randomUUID(), restaurantID, checkedAt, changed ? "changed" : "ok", hash);
+        INSERT INTO menu_check_runs
+          (id, restaurant_id, checked_at, status, source_hash, previous_source_hash)
+        VALUES (?, ?, ?, ?, ?, ?)
+      `).run(
+        randomUUID(), restaurantID, checkedAt, changed ? "changed" : "ok", hash, previousHash
+      );
       this.database.prepare(`
         INSERT OR IGNORE INTO menu_source_snapshots
           (id, restaurant_id, source_hash, normalized_source, captured_at)
@@ -740,6 +1047,155 @@ function canonicalItem(item) {
     modificationNote: item.modificationNote ?? null,
     sourceEvidence: item.sourceEvidence ?? ""
   };
+}
+
+// Applies the operations a reviewer accepted, and records each one in the item's
+// version history. Unlike publishMenu this is *incremental*: a dish nobody
+// proposed a change to is left exactly as it is, because the diff only claims to
+// describe what moved. Must be called inside a transaction.
+function applyChangeOperations(database, restaurantID, operations, recordedAt) {
+  const existing = database.prepare("SELECT * FROM menu_items WHERE id = ? AND restaurant_id = ?");
+  const insertVersion = database.prepare(`
+    INSERT INTO menu_item_versions (
+      id, menu_item_id, restaurant_id, item_snapshot, recorded_at, change_kind
+    ) VALUES (?, ?, ?, ?, ?, ?)
+  `);
+  const nextSortOrder = database.prepare(
+    "SELECT COALESCE(MAX(sort_order), -1) + 1 AS next FROM menu_items WHERE restaurant_id = ?"
+  );
+  const upsert = database.prepare(`
+    INSERT INTO menu_items (
+      id, restaurant_id, name, description, price, dietary_status,
+      modification_note, source_evidence, sort_order, last_verified_at, active, updated_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?)
+    ON CONFLICT(id) DO UPDATE SET
+      name = excluded.name, description = excluded.description, price = excluded.price,
+      dietary_status = excluded.dietary_status,
+      modification_note = excluded.modification_note,
+      source_evidence = excluded.source_evidence,
+      last_verified_at = excluded.last_verified_at, updated_at = excluded.updated_at,
+      active = 1
+  `);
+  const applied = [];
+
+  for (const operation of operations) {
+    if (operation.operation === "retire") {
+      const current = existing.get(operation.menu_item_id, restaurantID);
+      // Already gone. Accepting a retirement twice is not an error worth failing
+      // the whole transaction over; it just has nothing left to do.
+      if (!current || current.active === 0) continue;
+      database.prepare("UPDATE menu_items SET active = 0, updated_at = ? WHERE id = ?")
+        .run(recordedAt, current.id);
+      insertVersion.run(
+        randomUUID(), current.id, restaurantID,
+        JSON.stringify(canonicalDatabaseItem(current)), recordedAt, "retired"
+      );
+      applied.push(operation);
+      continue;
+    }
+
+    const item = {
+      id: operation.menu_item_id,
+      name: operation.proposed_name,
+      description: operation.proposed_description ?? "",
+      price: operation.proposed_price,
+      dietaryStatus: operation.proposed_dietary_status,
+      modificationNote: operation.proposed_modification_note ?? null,
+      sourceEvidence: operation.evidence ?? ""
+    };
+    const previous = existing.get(item.id, restaurantID);
+    // A re-added dish keeps the position it held before; a genuinely new one
+    // goes to the end rather than displacing the menu a reviewer already knows.
+    const sortOrder = previous ? previous.sort_order : nextSortOrder.get(restaurantID).next;
+    upsert.run(
+      item.id, restaurantID, item.name, item.description, item.price, item.dietaryStatus,
+      item.modificationNote, item.sourceEvidence, sortOrder, recordedAt, recordedAt
+    );
+
+    const snapshot = JSON.stringify(canonicalItem(item));
+    const wasLive = Boolean(previous) && previous.active === 1;
+    // Re-publishing a previously retired item is a change even when its content
+    // is byte-identical, so the flag matters as much as the snapshot does.
+    if (!wasLive || JSON.stringify(canonicalDatabaseItem(previous)) !== snapshot) {
+      insertVersion.run(
+        randomUUID(), item.id, restaurantID, snapshot, recordedAt,
+        wasLive ? "updated" : "published"
+      );
+    }
+    applied.push(operation);
+  }
+
+  return applied;
+}
+
+function changeProposalRow(row) {
+  return {
+    id: row.id,
+    restaurantID: row.restaurant_id,
+    restaurantName: row.restaurant_name,
+    menuURL: row.menu_url,
+    tier: row.tier,
+    status: row.status,
+    ambiguities: parseJSONColumn(row.ambiguities, []),
+    operationCount: Number(row.operation_count ?? 0),
+    createdAt: row.created_at,
+    reviewedAt: row.reviewed_at,
+    reviewedBy: row.reviewed_by,
+    note: row.note
+  };
+}
+
+function changeOperationRow(row) {
+  return {
+    id: row.id,
+    operation: row.operation,
+    position: row.position,
+    menuItemID: row.menu_item_id,
+    // A retirement proposes no values; it proposes that existing ones stop being
+    // published. Returning an object of nulls would read as "rename it to null".
+    proposed: row.operation === "retire" ? null : {
+      id: row.menu_item_id,
+      name: row.proposed_name,
+      description: row.proposed_description ?? "",
+      price: row.proposed_price,
+      dietaryStatus: row.proposed_dietary_status,
+      modificationNote: row.proposed_modification_note ?? null
+    },
+    current: parseJSONColumn(row.current_item, null),
+    changedFields: parseJSONColumn(row.changed_fields, []),
+    evidence: row.evidence,
+    confidence: row.confidence,
+    decision: row.decision
+  };
+}
+
+// A whole menu page, and for a document source a placeholder standing in for one.
+// Capped because a reviewer comparing two readings needs to see the text, not
+// receive 350KB of it down a review page that has to stay usable.
+const SOURCE_PREVIEW_LIMIT = 20_000;
+
+function snapshotRow(row) {
+  if (!row) return null;
+  const source = row.normalized_source ?? "";
+  return {
+    id: row.id,
+    hash: row.source_hash,
+    capturedAt: row.captured_at,
+    length: source.length,
+    truncated: source.length > SOURCE_PREVIEW_LIMIT,
+    source: source.slice(0, SOURCE_PREVIEW_LIMIT)
+  };
+}
+
+// SQLite stores these as TEXT; PostgreSQL hands back jsonb already parsed.
+function parseJSONColumn(value, fallback) {
+  if (value == null) return fallback;
+  if (typeof value !== "string") return value;
+  try {
+    return JSON.parse(value);
+  } catch {
+    return fallback;
+  }
 }
 
 export function ensureSeeded(database, seedPath = defaultSeedPath) {

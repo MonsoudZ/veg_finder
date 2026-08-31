@@ -7,6 +7,8 @@ import { checkMenus } from "../src/checker.js";
 import { defaultSeedPath } from "../src/paths.js";
 import { validateMenuItems, validateRestaurant } from "../src/catalog-input.js";
 import { openPostgresStore } from "../src/postgres-store.js";
+import { proposeChangesForResults, proposeMenuChanges } from "../src/menu-changes.js";
+import { autoPublishTiers, proposeMenu } from "../src/proposals.js";
 
 const connectionString = process.env.TEST_DATABASE_URL;
 
@@ -280,6 +282,129 @@ test("PostgreSQL creates unpublished restaurants and publishes them on reconcile
       }),
       null
     );
+  } finally {
+    await store.close();
+  }
+});
+
+const MENU_V1 = `<html><body>
+  <p>VG = Vegan, V = Vegetarian</p>
+  <li>Roasted Cauliflower (VG)</li><li>$11</li>
+  <li>Veggie Hash (V)</li><li>$13</li>
+  <li>Old Seasonal Bowl (VG)</li><li>$12</li>
+</body></html>`;
+const MENU_V2 = `<html><body>
+  <p>VG = Vegan, V = Vegetarian</p>
+  <li>Roasted Cauliflower (VG)</li><li>$11</li>
+  <li>Veggie Hash (V)</li><li>$15</li>
+  <li>Vegan Breakfast Burrito (VG)</li><li>$14.00</li>
+</body></html>`;
+
+// The change-proposal path carries the transactional guarantee this service
+// leans on hardest, so it is exercised against the engine production runs on and
+// not only against SQLite.
+test("PostgreSQL proposes a structured diff and publishes it in one transaction", {
+  skip: !connectionString
+}, async () => {
+  const store = await freshStore();
+  const logger = { log() {}, error() {} };
+  const serve = (html) => async () => new Response(html);
+  const id = "bbbbbbbb-0000-4000-8000-000000000042";
+  try {
+    await store.upsertRestaurant(validateRestaurant({
+      id, name: "Jelly", neighborhood: "Capitol Hill", address: "600 E 13th Ave",
+      latitude: 39.7371, longitude: -104.9784, menuURL: "https://example.com/menu"
+    }).value);
+    await checkMenus(store, { fetchImpl: serve(MENU_V1), logger });
+    await proposeMenu(store, await store.getCheckTarget(id), {
+      fetchImpl: serve(MENU_V1), tiers: autoPublishTiers("labelled_menu")
+    });
+    assert.equal((await store.getRestaurant(id)).menuItems.length, 3);
+
+    const results = await checkMenus(store, { fetchImpl: serve(MENU_V2), logger });
+    assert.equal(results[0].status, "changed");
+    const [outcome] = await proposeChangesForResults(store, results, {
+      fetchImpl: serve(MENU_V2), logger
+    });
+
+    const proposal = await store.getChangeProposal(outcome.proposalID);
+    assert.deepEqual(
+      proposal.operations.map((operation) => operation.operation).sort(),
+      ["add", "retire", "update"]
+    );
+    assert.match(proposal.oldSource.source, /Old Seasonal Bowl/);
+    assert.match(proposal.newSource.source, /Vegan Breakfast Burrito/);
+    assert.equal(
+      (await store.getRestaurant(id)).menuItems.length, 3, "a proposal publishes nothing"
+    );
+
+    const accepted = await store.acceptChangeProposal(outcome.proposalID, {
+      reviewedBy: "operator@example.com"
+    });
+    assert.equal(accepted.status, "accepted");
+    assert.equal(accepted.applied, 3);
+
+    const after = await store.getRestaurant(id);
+    assert.deepEqual(
+      after.menuItems.map((entry) => entry.name),
+      ["Roasted Cauliflower", "Veggie Hash", "Vegan Breakfast Burrito"]
+    );
+    assert.equal(after.menuItems.find((entry) => entry.name === "Veggie Hash").price, "$15");
+    assert.equal(after.coverageStatus, "Complete");
+
+    const { rows: kinds } = await store.pool.query(`
+      SELECT change_kind, COUNT(*)::integer AS count FROM menu_item_versions
+      WHERE restaurant_id=$1 GROUP BY change_kind ORDER BY change_kind
+    `, [id]);
+    assert.deepEqual(kinds, [
+      { change_kind: "published", count: 4 },
+      { change_kind: "retired", count: 1 },
+      { change_kind: "updated", count: 1 }
+    ], "three published at baseline, then one added, one repriced, one retired");
+
+    assert.equal(
+      (await store.acceptChangeProposal(outcome.proposalID, { reviewedBy: "again" })).status,
+      "conflict"
+    );
+  } finally {
+    await store.close();
+  }
+});
+
+// priorSnapshotID is a separate implementation per store, and it is the one
+// piece of this pipeline that cannot be inferred correctly from the snapshots
+// table alone, so it is checked against the engine production runs on.
+test("PostgreSQL shows the transition that happened, not the last snapshot captured", {
+  skip: !connectionString
+}, async () => {
+  const store = await freshStore();
+  const logger = { log() {}, error() {} };
+  const serve = (html) => async () => new Response(html);
+  const at = (iso) => ({ now: () => new Date(iso) });
+  const id = "bbbbbbbb-0000-4000-8000-000000000043";
+  const V3 = MENU_V1.replace("Old Seasonal Bowl", "Winter Squash Tartine");
+  try {
+    await store.upsertRestaurant(validateRestaurant({
+      id, name: "Jelly", neighborhood: "Capitol Hill", address: "600 E 13th Ave",
+      latitude: 39.7371, longitude: -104.9784, menuURL: "https://example.com/menu"
+    }).value);
+
+    // A → B → A → C. B is the most recently *captured* snapshot before C, while
+    // the state C replaced was A.
+    for (const [html, when] of [
+      [MENU_V1, "2026-08-01T00:00:00Z"], [MENU_V2, "2026-08-01T01:00:00Z"],
+      [MENU_V1, "2026-08-01T02:00:00Z"], [V3, "2026-08-01T03:00:00Z"]
+    ]) {
+      await checkMenus(store, { fetchImpl: serve(html), logger, ...at(when) });
+    }
+
+    const outcome = await proposeMenuChanges(store, await store.getCheckTarget(id), {
+      fetchImpl: serve(V3)
+    });
+    const proposal = await store.getChangeProposal(outcome.proposalID);
+    assert.match(proposal.oldSource.source, /Old Seasonal Bowl/);
+    assert.doesNotMatch(proposal.oldSource.source, /Vegan Breakfast Burrito/);
+    assert.match(proposal.newSource.source, /Winter Squash Tartine/);
   } finally {
     await store.close();
   }

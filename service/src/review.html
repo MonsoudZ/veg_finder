@@ -46,6 +46,18 @@
            color:var(--bg); padding:9px 16px; border-radius:8px; opacity:0; transition:opacity .2s; pointer-events:none }
   #toast.on { opacity:1 }
   label.keep { display:flex; gap:8px; align-items:flex-start; cursor:pointer }
+  /* A diff reads fastest when the operation is one glyph in a fixed column. */
+  .op { display:grid; grid-template-columns:18px 1fr; gap:10px; align-items:start }
+  .op .mark { font:700 17px/1.3 ui-monospace,SFMono-Regular,Menlo,monospace }
+  .op.add .mark { color:var(--vegan) } .op.update .mark { color:var(--veg) }
+  .op.retire .mark { color:var(--warn) }
+  .was { color:var(--muted); text-decoration:line-through }
+  .note { border-left:3px solid var(--warn); background:var(--bg); padding:8px 12px;
+          border-radius:0 6px 6px 0; margin:0 0 8px; font-size:13.5px }
+  details.source { margin-top:10px; font-size:13px }
+  details.source pre { max-height:280px; overflow:auto; background:var(--bg); padding:10px;
+          border-radius:7px; white-space:pre-wrap; word-break:break-word; margin:7px 0 0 }
+  .conf { font-size:11px; letter-spacing:.03em; color:var(--muted) }
 </style>
 </head>
 <body>
@@ -55,6 +67,8 @@
   <span style="flex:1"></span>
   <div class="row" id="auth">
     <input id="token" type="password" placeholder="INTERNAL_API_TOKEN" autocomplete="off">
+    <input id="reviewer" type="text" placeholder="your name or email" autocomplete="off"
+           style="min-width:190px">
     <button id="connect" class="primary">Connect</button>
   </div>
 </header>
@@ -66,8 +80,10 @@
 <script>
 const $ = (s) => document.querySelector(s);
 let token = sessionStorage.getItem("vf_token") || "";
-let current = null;          // { restaurant, proposals }
+let reviewer = localStorage.getItem("vf_reviewer") || "";
+let current = null;          // { restaurant, proposals, change }
 const keep = new Set();      // published item ids the reviewer is keeping
+const apply = new Set();     // change-operation ids the reviewer is applying
 
 const say = (m) => { const t = $("#toast"); t.textContent = m; t.classList.add("on");
   clearTimeout(say.t); say.t = setTimeout(() => t.classList.remove("on"), 2600); };
@@ -84,16 +100,27 @@ async function api(path, options = {}) {
 const STATUS_CLASS = (s) => s.includes("egan") ? "vegan" : "veg";
 const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;" }[c]));
 
+const day = (t) => new Date(t).toLocaleDateString(undefined, { month: "short", day: "numeric" });
+
 async function loadQueue() {
-  const [{ restaurants }, { proposals }] = await Promise.all([
+  const [{ restaurants, proposals: changes = [] }, { proposals }] = await Promise.all([
     api("/internal/review-queue"), api("/internal/proposals?status=pending")
   ]);
   const pending = {};
   for (const p of proposals) pending[p.restaurantID] = (pending[p.restaurantID] || 0) + 1;
+  const changeBy = {};
+  for (const c of changes) changeBy[c.restaurantID] = c;
+
   // Anything awaiting review, plus anything with drafts waiting on a decision.
   const byID = new Map(restaurants.map((r) => [r.id, { id: r.id, name: r.name, reason: r.checkError || "Needs review" }]));
   for (const p of proposals) if (!byID.has(p.restaurantID))
     byID.set(p.restaurantID, { id: p.restaurantID, name: p.restaurantName, reason: "Drafts awaiting review" });
+  for (const c of changes) if (!byID.has(c.restaurantID))
+    byID.set(c.restaurantID, { id: c.restaurantID, name: c.restaurantName, reason: "Needs review" });
+  // A restaurant whose change was already worked out is the cheapest thing in
+  // the queue to deal with, so it says so instead of the generic reason.
+  for (const [id, entry] of byID) if (changeBy[id])
+    entry.reason = "Source changed " + day(changeBy[id].createdAt);
 
   const list = [...byID.values()].sort((a, b) => a.name.localeCompare(b.name));
   $("#who").textContent = list.length ? list.length + " awaiting review" : "queue is empty";
@@ -101,28 +128,42 @@ async function loadQueue() {
   for (const r of list) {
     const b = document.createElement("button");
     b.className = "qitem" + (current?.restaurant?.id === r.id ? " on" : "");
+    const extras = [];
+    if (changeBy[r.id]) extras.push(changeBy[r.id].operationCount + " change(s)");
+    if (pending[r.id]) extras.push(pending[r.id] + " draft(s)");
     b.innerHTML = "<strong>" + esc(r.name) + "</strong><br><span class='muted' style='font-size:12.5px'>"
-      + esc(r.reason) + (pending[r.id] ? " · " + pending[r.id] + " draft(s)" : "") + "</span>";
+      + esc(r.reason) + (extras.length ? " · " + esc(extras.join(" · ")) : "") + "</span>";
     b.onclick = () => open(r.id);
     $("#queue").append(b);
   }
 }
 
 async function open(id) {
-  const [{ restaurants }, { proposals }] = await Promise.all([
-    api("/v1/catalog?limit=500"), api("/internal/proposals?restaurantId=" + id + "&status=pending")
+  const [{ restaurants }, { proposals }, queue] = await Promise.all([
+    api("/v1/catalog?limit=500"), api("/internal/proposals?restaurantId=" + id + "&status=pending"),
+    api("/internal/review-queue")
   ]);
   const restaurant = restaurants.find((r) => r.id === id);
   if (!restaurant) return say("That restaurant is not in the catalog.");
-  current = { restaurant, proposals };
+  const summary = (queue.proposals || []).find((c) => c.restaurantID === id);
+  const change = summary
+    ? (await api("/internal/review-queue/" + summary.id)).proposal
+    : null;
+
+  current = { restaurant, proposals, change };
   keep.clear();
   for (const item of restaurant.menuItems) keep.add(item.id);
+  apply.clear();
+  // Everything the diff is confident about starts ticked; anything it flagged
+  // starts unticked, so accepting the default never publishes a dietary claim
+  // nobody looked at.
+  for (const op of change?.operations || []) if (op.confidence !== "low") apply.add(op.id);
   render();
   loadQueue();
 }
 
 function render() {
-  const { restaurant, proposals } = current;
+  const { restaurant, proposals, change } = current;
   const published = restaurant.menuItems;
   const w = $("#work");
   w.innerHTML = "";
@@ -134,6 +175,8 @@ function render() {
     + (restaurant.menuURL ? " · <a href='" + esc(restaurant.menuURL) + "' target='_blank' rel='noopener'>official menu</a>" : "")
     + "</p>";
   w.append(head);
+
+  if (change) w.append(changeSection(change));
 
   // A re-draft of a menu often re-proposes dishes that are already live. Saying
   // so stops a reviewer from weighing a decision that has already been made.
@@ -169,6 +212,138 @@ function render() {
   bar.append(hint);
   w.append(bar);
   render.refreshButton = publish;
+}
+
+// What the source change turned out to be. Deliberately plain: one glyph per
+// operation, the old value beside the new one, and the menu line each rests on.
+function changeSection(change) {
+  const box = document.createElement("div");
+  box.insertAdjacentHTML("beforeend",
+    "<h2>Source changed " + esc(day(change.createdAt)) + " · read as "
+    + esc(change.tier.replace(/_/g, " ")) + "</h2>");
+
+  for (const note of change.ambiguities) {
+    box.insertAdjacentHTML("beforeend", "<p class='note'>" + esc(note) + "</p>");
+  }
+  if (!change.operations.length) {
+    box.insertAdjacentHTML("beforeend",
+      "<p class='muted'>No dish-level change could be worked out. Compare the two "
+      + "readings below and reconcile the menu by hand.</p>");
+  }
+
+  for (const op of change.operations) box.append(operationCard(op));
+
+  if (change.oldSource || change.newSource) {
+    const sources = document.createElement("details");
+    sources.className = "source";
+    sources.innerHTML = "<summary class='muted'>Compare the two readings</summary>"
+      + sourceBlock("Before", change.oldSource) + sourceBlock("After", change.newSource);
+    box.append(sources);
+  }
+
+  const bar = document.createElement("div");
+  bar.className = "row";
+  bar.style.cssText = "margin-top:14px;padding-bottom:16px;border-bottom:1px solid var(--line)";
+  const accept = document.createElement("button");
+  accept.className = "primary";
+  const status = document.createElement("select");
+  status.innerHTML = "<option value='Complete'>Mark reviewed as Complete</option>"
+                   + "<option value='Needs review'>Keep as Needs review</option>";
+  status.style.cssText = "font:inherit;padding:6px 9px;border-radius:7px;border:1px solid var(--line);background:var(--panel);color:var(--ink)";
+  const label = () => { accept.textContent = "Accept " + apply.size + " of " + change.operations.length; };
+  label();
+  changeSection.refreshButton = label;
+  accept.onclick = () => acceptChange(change, status.value);
+
+  const reject = document.createElement("button");
+  reject.textContent = "Reject";
+  reject.onclick = () => rejectChange(change);
+
+  bar.append(accept, reject, status);
+  const hint = document.createElement("span");
+  hint.className = "muted";
+  hint.textContent = "Only ticked operations publish. Flagged ones start unticked.";
+  bar.append(hint);
+  box.append(bar);
+  return box;
+}
+
+const MARK = { add: "+", update: "~", retire: "−" };
+
+function operationCard(op) {
+  const card = document.createElement("div");
+  card.className = "card";
+  const target = op.proposed || op.current;
+  const id = "op_" + op.id;
+
+  // For an update, show only what actually moved. Repeating the unchanged fields
+  // buries the one line the reviewer has to judge.
+  const changes = (op.changedFields || []).map((field) => {
+    const was = esc(op.current?.[field] ?? "—");
+    const now = esc(op.proposed?.[field] ?? "—");
+    return "<div><span class='muted'>" + esc(field) + ":</span> <span class='was'>" + was
+      + "</span> → <strong>" + now + "</strong></div>";
+  }).join("");
+
+  card.innerHTML =
+    "<div class='op " + op.operation + "'><span class='mark'>" + MARK[op.operation] + "</span><div>"
+    + "<div class='row'><strong>" + esc(target.name) + "</strong>"
+    + (op.operation === "retire" ? "" : "<span class='muted'>" + esc(op.proposed.price || "") + "</span>")
+    + "<span class='tag " + STATUS_CLASS(target.dietaryStatus || "") + "'>"
+    + esc(target.dietaryStatus || "") + "</span>"
+    + "<span style='flex:1'></span><span class='conf'>" + esc(op.confidence) + " confidence</span></div>"
+    + changes
+    + (op.operation === "retire"
+        ? "<div class='muted' style='margin-top:4px'>The new source no longer accounts for this dish.</div>"
+        : "")
+    + (op.proposed?.modificationNote
+        ? "<div style='margin-top:5px'><strong>Ask for:</strong> " + esc(op.proposed.modificationNote) + "</div>"
+        : "")
+    + (op.evidence ? "<blockquote>" + esc(op.evidence) + "</blockquote>" : "")
+    + "<label class='keep' style='margin-top:9px'><input type='checkbox' id='" + id + "'"
+    + (apply.has(op.id) ? " checked" : "") + "><span>Apply this</span></label>"
+    + "</div></div>";
+
+  card.querySelector("input").onchange = (e) => {
+    e.target.checked ? apply.add(op.id) : apply.delete(op.id);
+    changeSection.refreshButton?.();
+  };
+  return card;
+}
+
+function sourceBlock(label, snapshot) {
+  if (!snapshot) return "<p class='muted'>" + label + ": nothing recorded.</p>";
+  return "<p class='muted' style='margin:10px 0 0'>" + label + " · captured "
+    + esc((snapshot.capturedAt || "").slice(0, 10)) + " · " + snapshot.length + " chars"
+    + (snapshot.truncated ? " (showing the first 20,000)" : "") + "</p>"
+    + "<pre>" + esc(snapshot.source) + "</pre>";
+}
+
+async function acceptChange(change, coverageStatus) {
+  if (!reviewer) return say("Enter your name in the header first — an accept is recorded against it.");
+  const retiring = change.operations.filter((op) => op.operation === "retire" && apply.has(op.id));
+  if (retiring.length && !confirm("This unpublishes " + retiring.length + " dish(es). Continue?")) return;
+  try {
+    const result = await api("/internal/review-queue/" + change.id + "/accept", {
+      method: "POST",
+      body: JSON.stringify({
+        reviewedBy: reviewer, coverageStatus, operationIds: [...apply]
+      })
+    });
+    say("Applied " + result.applied + ", skipped " + result.skipped);
+    await open(change.restaurantID);
+  } catch (e) { say(e.message); }
+}
+
+async function rejectChange(change) {
+  const note = prompt("Why is this reading wrong? (optional)") ?? "";
+  try {
+    await api("/internal/review-queue/" + change.id + "/reject", {
+      method: "POST", body: JSON.stringify({ reviewedBy: reviewer || null, note })
+    });
+    say("Rejected. The restaurant stays in the queue.");
+    await open(change.restaurantID);
+  } catch (e) { say(e.message); }
 }
 
 function proposalCard(p, live = new Set()) {
@@ -262,13 +437,18 @@ async function doPublish(coverageStatus, refresh) {
 
 $("#connect").onclick = async () => {
   token = $("#token").value.trim();
+  reviewer = $("#reviewer").value.trim();
   try {
     await api("/internal/review-queue");
     sessionStorage.setItem("vf_token", token);
+    // Kept across sessions, unlike the token: it is a name, not a secret, and
+    // retyping it is how an accept ends up attributed to nobody.
+    if (reviewer) localStorage.setItem("vf_reviewer", reviewer);
     $("#auth").style.display = "none";
     await loadQueue();
   } catch (e) { say(e.message); }
 };
+if (reviewer) $("#reviewer").value = reviewer;
 if (token) { $("#token").value = token; $("#connect").click(); }
 </script>
 </body>
