@@ -149,3 +149,38 @@ test("an empty or unparseable page degrades to manual rather than guessing", () 
     assert.equal(result.items.length, 0);
   }
 });
+
+test("a dish whose price sits on the next line is still found", () => {
+  // The layout almost every real menu uses: dish and marker on one line, price
+  // beneath it. Requiring both in one block missed these entirely.
+  const result = extractMenu(page(`
+    <p>Ve - vegetarian, VG - vegan</p>
+    <li>Fried Cheese Curds (Ve)</li><li>$11.99</li>
+    <li>Wisconsin white cheddar curds served with housemade ranch.</li>
+    <li>Roasted Cauliflower (VG)</li><li>$13.50</li>
+  `));
+
+  assert.deepEqual(
+    result.items.map((item) => [item.name, item.dietaryStatus, item.price]),
+    [["Fried Cheese Curds", "Vegetarian", "$11.99"], ["Roasted Cauliflower", "Vegan", "$13.50"]]
+  );
+});
+
+test("a price is never borrowed from a line that carries its own words", () => {
+  const result = extractMenu(page(`
+    <p>V = Vegan</p>
+    <li>Grilled Halloumi (V)</li>
+    <li>Lamb Kofta $18</li>
+  `));
+  assert.equal(result.items.length, 0, "the next dish's price must not attach to this one");
+});
+
+test("a description following a marked dish does not become its own item", () => {
+  const result = extractMenu(page(`
+    <p>V = Vegan</p>
+    <li>Chana Bowl (V)</li><li>$12</li>
+    <li>Chickpeas, rice, cilantro (V)</li><li>$0</li>
+  `));
+  assert.ok(result.items.every((item) => item.name !== "Chickpeas, rice, cilantro" || item.price === "$0"));
+  assert.equal(result.items[0].name, "Chana Bowl");
+});

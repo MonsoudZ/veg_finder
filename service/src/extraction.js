@@ -89,11 +89,15 @@ function collectItems(blocks, classify) {
   const items = [];
   const seen = new Set();
 
-  for (const block of blocks) {
-    const price = block.match(PRICE);
-    if (!price) continue;
+  for (const [index, block] of blocks.entries()) {
     const decision = classify(block);
     if (!decision) continue;
+
+    // Menus overwhelmingly put the price on its own line beneath the dish, so a
+    // dish line and its price are different blocks. Requiring both in one block
+    // silently dropped every menu laid out that way.
+    const price = block.match(PRICE) ?? priceOnFollowingLine(blocks[index + 1]);
+    if (!price) continue;
 
     const name = readName(block);
     if (!name) continue;
@@ -114,6 +118,17 @@ function collectItems(blocks, classify) {
     });
   }
   return items;
+}
+
+// Only a line that is *just* a price counts. A following line carrying its own
+// words is the next dish or a description, and borrowing its price would attach
+// the wrong number to this one.
+function priceOnFollowingLine(next) {
+  if (!next || next.length > 40) return null;
+  const price = next.match(PRICE);
+  if (!price) return null;
+  const leftover = next.replace(new RegExp(PRICE.source, "g"), " ").replace(/[^a-z0-9]/gi, "");
+  return leftover.length === 0 ? price : null;
 }
 
 function readName(block) {
