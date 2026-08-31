@@ -87,7 +87,7 @@ struct NearbyRestaurantsView: View {
                 Image(systemName: locationIcon)
                 Text(locationDescription)
                 Spacer()
-                Text("\(results.count) places")
+                Text(placesSummary)
             }
             .font(.caption)
             .foregroundStyle(.secondary)
@@ -118,14 +118,23 @@ struct NearbyRestaurantsView: View {
 
     private var verificationNotice: some View {
         HStack(alignment: .top, spacing: 10) {
-            Image(systemName: "checkmark.seal.fill")
-                .foregroundStyle(.green)
+            Image(systemName: showingStaleMenus ? "exclamationmark.triangle.fill" : "checkmark.seal.fill")
+                .foregroundStyle(showingStaleMenus ? .orange : .green)
             Text(verificationText)
                 .font(.footnote)
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
         .padding(12)
-        .background(.green.opacity(0.10), in: RoundedRectangle(cornerRadius: 12))
+        .background(
+            (showingStaleMenus ? Color.orange : Color.green).opacity(0.10),
+            in: RoundedRectangle(cornerRadius: 12)
+        )
+    }
+
+    /// Cached menus are on screen but the catalog could not be refreshed, so the
+    /// service may have demoted a restaurant to `Needs review` without us hearing it.
+    private var showingStaleMenus: Bool {
+        catalog.refreshFailure != nil && !catalog.restaurants.isEmpty
     }
 
     @ViewBuilder
@@ -154,7 +163,24 @@ struct NearbyRestaurantsView: View {
         guard let generatedAt = catalog.generatedAt else {
             return "Capitol Hill pilot · loading the verified menu catalog."
         }
-        return "Catalog refreshed \(generatedAt.formatted(date: .abbreviated, time: .shortened)). Availability can change; tap to verify."
+        let refreshed = generatedAt.formatted(date: .abbreviated, time: .shortened)
+        if showingStaleMenus {
+            return "Saved menus from \(refreshed). The catalog could not be refreshed, so these items may no longer be accurate — check the restaurant's own menu before ordering."
+        }
+        return "Catalog refreshed \(refreshed). Availability can change; tap to verify."
+    }
+
+    private var placesSummary: String {
+        let places = "\(results.count) places"
+        switch needsReviewCount {
+        case 0: return places
+        case 1: return "\(places) · 1 needs review"
+        default: return "\(places) · \(needsReviewCount) need review"
+        }
+    }
+
+    private var needsReviewCount: Int {
+        results.filter { $0.restaurant.coverageStatus == .needsReview }.count
     }
 
     private var locationIcon: String {
@@ -176,6 +202,10 @@ private struct RestaurantCard: View {
     let result: RestaurantResult
     let filter: DietaryFilter
 
+    private var needsReview: Bool {
+        result.restaurant.coverageStatus == .needsReview
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(alignment: .firstTextBaseline) {
@@ -192,9 +222,13 @@ private struct RestaurantCard: View {
                     .foregroundStyle(.tertiary)
             }
 
+            if needsReview {
+                reviewNotice
+            }
+
             Text(summaryText)
                 .font(.caption.weight(.semibold))
-                .foregroundStyle(.green)
+                .foregroundStyle(needsReview ? Color.secondary : Color.green)
 
             VStack(alignment: .leading, spacing: 8) {
                 ForEach(result.items.prefix(3)) { item in
@@ -226,6 +260,23 @@ private struct RestaurantCard: View {
             RoundedRectangle(cornerRadius: 18)
                 .stroke(.quaternary, lineWidth: 0.5)
         }
+    }
+
+    private var reviewNotice: some View {
+        Label {
+            Text("\(result.restaurant.coverageStatus.displayName) · verify on the official menu")
+        } icon: {
+            Image(systemName: "exclamationmark.triangle.fill")
+        }
+        .font(.caption.weight(.semibold))
+        .foregroundStyle(.orange)
+        .padding(.horizontal, 8)
+        .padding(.vertical, 5)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(.orange.opacity(0.12), in: RoundedRectangle(cornerRadius: 8))
+        .accessibilityLabel(
+            "Needs review. The official menu could not be confirmed since this restaurant was audited."
+        )
     }
 
     private var distanceText: String {

@@ -36,3 +36,49 @@ jobs:
       - run: npm ci
       - run: npm audit --omit=dev
       - run: npm test
+
+  app:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Show toolchain
+        run: xcodebuild -version
+
+      # Runner images change their simulator line-up, so resolve a device at run
+      # time rather than pinning a name that will eventually disappear.
+      - name: Select an iPhone simulator
+        id: simulator
+        run: |
+          udid=$(xcrun simctl list devices available --json | python3 -c '
+          import json, sys
+          runtimes = json.load(sys.stdin)["devices"]
+          candidates = [
+              (runtime, device)
+              for runtime, devices in runtimes.items() if "iOS" in runtime
+              for device in devices if device["name"].startswith("iPhone")
+          ]
+          if not candidates:
+              sys.exit("no iPhone simulator is available on this runner")
+          print(sorted(candidates, key=lambda pair: pair[0])[-1][1]["udid"])
+          ')
+          echo "Using simulator $udid"
+          echo "udid=$udid" >> "$GITHUB_OUTPUT"
+
+      # Covers the dietary filter logic and the Info.plist wiring the app needs to
+      # reach the catalog at all. Simulator builds do not need a signing identity.
+      - name: Run tests
+        run: |
+          xcodebuild test \
+            -project VegFinder.xcodeproj \
+            -scheme VegFinder \
+            -destination "id=${{ steps.simulator.outputs.udid }}" \
+            -resultBundlePath TestResults.xcresult \
+            CODE_SIGNING_ALLOWED=NO
+
+      - name: Upload test results
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: xcode-test-results
+          path: TestResults.xcresult

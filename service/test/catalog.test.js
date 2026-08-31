@@ -1,10 +1,35 @@
 import assert from "node:assert/strict";
-import { mkdtempSync } from "node:fs";
+import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { checkMenus } from "../src/checker.js";
 import { openSQLiteStore } from "../src/database.js";
+import { defaultSeedPath } from "../src/paths.js";
+
+// Writes a copy of the audited seed with a different audit timestamp, standing in
+// for an operator who has (or has not) reconciled the menus against their sources.
+function seedAuditedAt(auditedAt, { coverageStatus = "Complete" } = {}) {
+  const seed = JSON.parse(readFileSync(defaultSeedPath, "utf8"));
+  seed.restaurants = seed.restaurants.map((restaurant) => ({
+    ...restaurant, auditedAt, coverageStatus
+  }));
+  const path = join(mkdtempSync(join(tmpdir(), "vegfinder-seed-")), "catalog.seed.json");
+  writeFileSync(path, JSON.stringify(seed));
+  return path;
+}
+
+// Drives the checker twice so the second run sees a different fingerprint and
+// demotes every restaurant to 'Needs review'.
+async function demoteEveryRestaurant(store) {
+  const logger = { log() {}, error() {} };
+  await checkMenus(store, { fetchImpl: async () => new Response("<main>one</main>"), logger });
+  await checkMenus(store, { fetchImpl: async () => new Response("<main>two</main>"), logger });
+}
+
+function openTemporaryStore(label) {
+  return openSQLiteStore(join(mkdtempSync(join(tmpdir(), `vegfinder-${label}-`)), "catalog.sqlite"));
+}
 
 test("seed publishes every stored menu item and modification note", async () => {
   const directory = mkdtempSync(join(tmpdir(), "vegfinder-test-"));
@@ -66,5 +91,70 @@ test("menu checker flags a changed official source for review", async () => {
   assert.ok(catalog.restaurants.every((restaurant) => restaurant.coverageStatus === "Needs review"));
   assert.equal(store.database.prepare("SELECT COUNT(*) AS count FROM menu_check_runs").get().count, 20);
   assert.equal(store.database.prepare("SELECT COUNT(*) AS count FROM menu_source_snapshots").get().count, 20);
+  await store.close();
+});
+
+test("re-seeding without a fresh audit cannot re-publish a demoted restaurant", async () => {
+  const store = openTemporaryStore("stale-reseed");
+  await store.importSeed();
+  await demoteEveryRestaurant(store);
+  assert.equal((await store.getReviewQueue()).length, 10);
+
+  // Same audit timestamp as the seed already in the database: nothing was reconciled.
+  await store.importSeed(seedAuditedAt("2026-08-30T00:00:00Z"));
+
+  const catalog = await store.getCatalog();
+  assert.ok(
+    catalog.restaurants.every((restaurant) => restaurant.coverageStatus === "Needs review"),
+    "a seed with no fresh audit must not clear the checker's demotion"
+  );
+  assert.equal((await store.getReviewQueue()).length, 10);
+  await store.close();
+});
+
+test("an advanced audit timestamp republishes and drains the review queue", async () => {
+  const store = openTemporaryStore("reconciled");
+  await store.importSeed();
+  await demoteEveryRestaurant(store);
+  assert.equal((await store.getReviewQueue()).length, 10);
+
+  await store.importSeed(seedAuditedAt("2026-09-15T00:00:00Z"));
+
+  const catalog = await store.getCatalog();
+  assert.ok(catalog.restaurants.every((restaurant) => restaurant.coverageStatus === "Complete"));
+  assert.ok(catalog.restaurants.every((restaurant) => restaurant.auditedAt.startsWith("2026-09-15")));
+  assert.equal((await store.getReviewQueue()).length, 0, "reconciliation must drain the queue");
+  await store.close();
+});
+
+test("a seed may demote a restaurant at any time", async () => {
+  const store = openTemporaryStore("demote");
+  await store.importSeed();
+  assert.equal((await store.getReviewQueue()).length, 0);
+
+  await store.importSeed(seedAuditedAt("2026-09-15T00:00:00Z", { coverageStatus: "Needs review" }));
+
+  const catalog = await store.getCatalog();
+  assert.ok(catalog.restaurants.every((restaurant) => restaurant.coverageStatus === "Needs review"));
+  assert.equal((await store.getReviewQueue()).length, 10, "a demotion must reach the queue");
+  await store.close();
+});
+
+test("a fresh audit clears a recorded check failure", async () => {
+  const store = openTemporaryStore("check-error");
+  await store.importSeed();
+  const logger = { log() {}, error() {} };
+  await checkMenus(store, {
+    fetchImpl: async () => { throw new Error("source unreachable"); },
+    logger
+  });
+  assert.equal((await store.getReviewQueue()).length, 10);
+
+  await store.importSeed(seedAuditedAt("2026-09-15T00:00:00Z"));
+
+  assert.equal((await store.getReviewQueue()).length, 0);
+  const remaining = store.database
+    .prepare("SELECT COUNT(*) AS count FROM restaurants WHERE check_error IS NOT NULL").get();
+  assert.equal(remaining.count, 0);
   await store.close();
 });

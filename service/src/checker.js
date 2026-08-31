@@ -25,12 +25,12 @@ export async function checkMenus(
         changed
       });
       logger.log(`${changed ? "CHANGED" : "OK"} ${restaurant.name}`);
-      results.push({ id: restaurant.id, status: changed ? "changed" : "ok" });
+      results.push({ id: restaurant.id, name: restaurant.name, status: changed ? "changed" : "ok" });
     } catch (error) {
       const message = String(error.message ?? error);
       await store.recordCheckFailure({ restaurantID: restaurant.id, checkedAt, error: message });
       logger.error(`FAILED ${restaurant.name}: ${message}`);
-      results.push({ id: restaurant.id, status: "failed", error: message });
+      results.push({ id: restaurant.id, name: restaurant.name, status: "failed", error: message });
     }
   }
   return results;

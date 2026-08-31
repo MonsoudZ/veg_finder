@@ -123,9 +123,28 @@ export function importSeed(database, seedPath = defaultSeedPath) {
         check_url = excluded.check_url,
         extraction_mode = excluded.extraction_mode,
         verified_at = excluded.verified_at,
-        coverage_status = excluded.coverage_status,
         coverage_scope = excluded.coverage_scope,
-        audited_at = excluded.audited_at
+        audited_at = excluded.audited_at,
+        -- Mirrors the PostgreSQL upsert: only a fresh audit clears a review the
+        -- checker raised. Timestamps are stored as ISO-8601 UTC text, so ordering
+        -- them lexicographically orders them chronologically.
+        coverage_status = CASE
+          WHEN excluded.coverage_status = 'Needs review' THEN 'Needs review'
+          WHEN restaurants.audited_at IS NULL
+            OR excluded.audited_at > restaurants.audited_at THEN excluded.coverage_status
+          ELSE restaurants.coverage_status
+        END,
+        review_required = CASE
+          WHEN excluded.coverage_status = 'Needs review' THEN 1
+          WHEN restaurants.audited_at IS NULL
+            OR excluded.audited_at > restaurants.audited_at THEN 0
+          ELSE restaurants.review_required
+        END,
+        check_error = CASE
+          WHEN restaurants.audited_at IS NULL
+            OR excluded.audited_at > restaurants.audited_at THEN NULL
+          ELSE restaurants.check_error
+        END
     `);
     const retireItems = database.prepare("UPDATE menu_items SET active = 0 WHERE restaurant_id = ?");
     const existingItem = database.prepare("SELECT * FROM menu_items WHERE id = ?");
@@ -266,8 +285,10 @@ export class SQLiteStore {
     this.database = database;
   }
 
-  async ensureSeeded() { ensureSeeded(this.database); }
-  async importSeed() { importSeed(this.database); }
+  // Both forward the seed path so this store honours the same call signature as
+  // PostgresStore; dropping it silently imported the default seed instead.
+  async ensureSeeded(seedPath) { ensureSeeded(this.database, seedPath); }
+  async importSeed(seedPath) { importSeed(this.database, seedPath); }
   async getCatalog() { return catalogFromDatabase(this.database); }
   async ping() { this.database.prepare("SELECT 1").get(); }
 

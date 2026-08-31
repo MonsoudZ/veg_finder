@@ -72,8 +72,28 @@ export class PostgresStore {
             latitude=EXCLUDED.latitude, longitude=EXCLUDED.longitude,
             menu_url=EXCLUDED.menu_url, check_url=EXCLUDED.check_url,
             extraction_mode=EXCLUDED.extraction_mode, verified_at=EXCLUDED.verified_at,
-            coverage_status=EXCLUDED.coverage_status, coverage_scope=EXCLUDED.coverage_scope,
-            audited_at=EXCLUDED.audited_at
+            coverage_scope=EXCLUDED.coverage_scope, audited_at=EXCLUDED.audited_at,
+            -- An advancing audited_at is the operator's record that this menu was
+            -- actually reconciled against the official source, so it is the only
+            -- thing that may clear a review the checker raised. A seed can always
+            -- demote; without a fresh audit it can never re-publish 'Complete'.
+            coverage_status = CASE
+              WHEN EXCLUDED.coverage_status = 'Needs review' THEN 'Needs review'
+              WHEN restaurants.audited_at IS NULL
+                OR EXCLUDED.audited_at > restaurants.audited_at THEN EXCLUDED.coverage_status
+              ELSE restaurants.coverage_status
+            END,
+            review_required = CASE
+              WHEN EXCLUDED.coverage_status = 'Needs review' THEN TRUE
+              WHEN restaurants.audited_at IS NULL
+                OR EXCLUDED.audited_at > restaurants.audited_at THEN FALSE
+              ELSE restaurants.review_required
+            END,
+            check_error = CASE
+              WHEN restaurants.audited_at IS NULL
+                OR EXCLUDED.audited_at > restaurants.audited_at THEN NULL
+              ELSE restaurants.check_error
+            END
         `, [
           restaurant.id, restaurant.name, restaurant.neighborhood, restaurant.address,
           restaurant.latitude, restaurant.longitude, restaurant.menuURL,
@@ -122,12 +142,12 @@ export class PostgresStore {
           existing.delete(item.id);
         }
 
-        if (incomingIDs.length > 0) {
-          await client.query(`
-            UPDATE menu_items SET active=FALSE
-            WHERE restaurant_id=$1 AND active=TRUE AND NOT (id = ANY($2::uuid[]))
-          `, [restaurant.id, incomingIDs]);
-        }
+        // Runs even when incomingIDs is empty: a seed that drops every item for a
+        // restaurant must unpublish the old ones rather than keep serving them.
+        await client.query(`
+          UPDATE menu_items SET active=FALSE
+          WHERE restaurant_id=$1 AND active=TRUE AND NOT (id = ANY($2::uuid[]))
+        `, [restaurant.id, incomingIDs]);
         for (const retired of existing.values()) {
           await client.query(`
             INSERT INTO menu_item_versions
@@ -276,6 +296,11 @@ export class PostgresStore {
 
 export async function openPostgresStore(connectionString) {
   const pool = new Pool({ connectionString });
+  // Idle clients die on failover, restart, and server-side idle timeouts. The pool
+  // emits those here, and an unhandled 'error' event would terminate the service.
+  pool.on("error", (error) => {
+    console.error("PostgreSQL pool error:", error);
+  });
   const store = new PostgresStore(pool);
   try {
     await store.migrate();

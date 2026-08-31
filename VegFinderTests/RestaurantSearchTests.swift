@@ -83,6 +83,67 @@ final class RestaurantSearchTests: XCTestCase {
         XCTAssertNotNil(catalog.restaurants[0].lastCheckedAt)
     }
 
+    @MainActor
+    func testCatalogDecoderTreatsAnUnknownCoverageStatusAsNeedingReview() throws {
+        let catalog = try RestaurantCatalog.decoder.decode(
+            CatalogResponse.self, from: Data(minimalCatalogJSON.utf8)
+        )
+
+        // A catalog that omits coverage must never be presented as audited.
+        XCTAssertEqual(catalog.restaurants[0].coverageStatus, .needsReview)
+        XCTAssertNil(catalog.restaurants[0].lastCheckedAt)
+        XCTAssertEqual(catalog.restaurants[0].auditedAt, catalog.restaurants[0].verifiedAt)
+    }
+
+    func testCoverageStatusDisplayNamesDistinguishAuditedFromUnverified() {
+        XCTAssertEqual(CatalogCoverageStatus.complete.displayName, "Official menu audited")
+        XCTAssertEqual(CatalogCoverageStatus.needsReview.displayName, "Needs review")
+    }
+
+    // Xcode silently drops INFOPLIST_KEY_* settings for keys it does not recognise,
+    // which once left the shipped app with no catalog endpoint at all while every
+    // other test still passed. These assert the bundle wiring itself.
+    func testAppBundleDeclaresAUsableCatalogEndpoint() throws {
+        let value = try XCTUnwrap(
+            Bundle.main.object(forInfoDictionaryKey: "VegFinderCatalogURL") as? String,
+            "the app bundle must declare VegFinderCatalogURL"
+        )
+        let url = try XCTUnwrap(URL(string: value), "VegFinderCatalogURL must parse as a URL")
+        XCTAssertNotNil(url.host, "VegFinderCatalogURL must include a host")
+        XCTAssertTrue(
+            url.path.hasSuffix("/v1/catalog"),
+            "expected the catalog endpoint path, got \(url.path)"
+        )
+    }
+
+    func testAppBundleDeclaresTheLocationUsageDescription() throws {
+        let description = Bundle.main.object(
+            forInfoDictionaryKey: "NSLocationWhenInUseUsageDescription"
+        ) as? String
+        XCTAssertFalse(
+            (description ?? "").isEmpty,
+            "a missing usage description crashes the app on the first location request"
+        )
+    }
+
+    private var minimalCatalogJSON: String {
+        """
+        {
+          "generatedAt": "2026-08-29T12:00:00.000Z",
+          "restaurants": [{
+            "id": "00000000-0000-4000-8000-000000000002",
+            "name": "Sparse",
+            "neighborhood": "Capitol Hill",
+            "address": "Denver",
+            "latitude": 39.734,
+            "longitude": -104.980,
+            "verifiedAt": "2026-08-29T12:00:00.000Z",
+            "menuItems": []
+          }]
+        }
+        """
+    }
+
     private var sampleRestaurant: Restaurant {
         Restaurant(
             name: "Sample",

@@ -1,11 +1,20 @@
 import { createServer } from "node:http";
 import { checkMenus } from "./checker.js";
+import { announceCheckResults, createNotifier } from "./notifier.js";
 import { openStore } from "./store.js";
 
 const port = Number(process.env.PORT ?? 8787);
 const host = process.env.HOST ?? "127.0.0.1";
 const store = await openStore();
 await store.ensureSeeded();
+
+const notifier = createNotifier();
+if (!notifier.enabled) {
+  console.warn(
+    "ALERT_WEBHOOK_URL is not set. Menu reviews will be recorded but nobody will be " +
+    "notified; the review queue must then be polled by hand."
+  );
+}
 
 const server = createServer(async (request, response) => {
   try {
@@ -67,14 +76,21 @@ if (checkIntervalHours > 0) {
 
 async function runScheduledCheck() {
   console.log("Starting scheduled official-menu check.");
-  const results = await store.runMenuCheckExclusive(() => checkMenus(store));
-  if (results === null) {
-    console.log("Menu check skipped: another service instance owns the check lease.");
-    return;
+  try {
+    const results = await store.runMenuCheckExclusive(() => checkMenus(store));
+    if (results === null) {
+      console.log("Menu check skipped: another service instance owns the check lease.");
+      return;
+    }
+    const failed = results.filter((result) => result.status === "failed").length;
+    const changed = results.filter((result) => result.status === "changed").length;
+    console.log(`Menu check complete: ${changed} changed, ${failed} failed.`);
+    await announceCheckResults(store, results, { notifier });
+  } catch (error) {
+    // Timers own this promise, so an escaping rejection would end the process.
+    // A check cycle that cannot run is a review problem, not an API outage.
+    console.error("Scheduled menu check failed:", error);
   }
-  const failed = results.filter((result) => result.status === "failed").length;
-  const changed = results.filter((result) => result.status === "changed").length;
-  console.log(`Menu check complete: ${changed} changed, ${failed} failed.`);
 }
 
 function json(response, statusCode, value, cacheable = true) {

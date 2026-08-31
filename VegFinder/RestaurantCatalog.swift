@@ -36,6 +36,10 @@ final class RestaurantCatalog: ObservableObject {
     @Published private(set) var generatedAt: Date?
     @Published private(set) var phase: CatalogPhase = .idle
 
+    /// Set whenever a refresh fails while cached menus are still on screen. Those
+    /// menus stay useful, but they can no longer be described as freshly verified.
+    @Published private(set) var refreshFailure: String?
+
     private let endpoint: URL?
     private let session: URLSession
     private let cacheURL: URL
@@ -59,6 +63,7 @@ final class RestaurantCatalog: ObservableObject {
 
     func refresh() async {
         guard let endpoint else {
+            refreshFailure = CatalogError.missingEndpoint.localizedDescription
             if restaurants.isEmpty {
                 phase = .failed(CatalogError.missingEndpoint.localizedDescription)
             }
@@ -86,9 +91,11 @@ final class RestaurantCatalog: ObservableObject {
 
             restaurants = catalog.restaurants
             generatedAt = catalog.generatedAt
+            refreshFailure = nil
             phase = .ready
             try? data.write(to: cacheURL, options: .atomic)
         } catch {
+            refreshFailure = error.localizedDescription
             if restaurants.isEmpty {
                 phase = .failed(error.localizedDescription)
             } else {
