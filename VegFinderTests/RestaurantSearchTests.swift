@@ -126,6 +126,126 @@ final class RestaurantSearchTests: XCTestCase {
         )
     }
 
+    // MARK: - Delta sync
+
+    private func restaurant(
+        _ name: String, id: String, lat: Double = 39.734, lon: Double = -104.980, items: Int = 1
+    ) -> Restaurant {
+        Restaurant(
+            id: UUID(uuidString: id)!, name: name, neighborhood: "Capitol Hill", address: "Denver",
+            latitude: lat, longitude: lon,
+            menuItems: (0..<items).map { _ in sampleItem(status: .vegan) },
+            verifiedAt: .now
+        )
+    }
+
+    func testMergeReplacesAChangedRestaurantRatherThanDuplicatingIt() {
+        let id = "00000000-0000-4000-8000-000000000001"
+        let existing = [restaurant("Old Name", id: id)]
+        let merged = CatalogMerge.apply(
+            changes: [restaurant("New Name", id: id, items: 3)], to: existing,
+            origin: RestaurantSearch.pilotCenter, radiusKm: 25
+        )
+
+        XCTAssertEqual(merged.count, 1, "a change to a known restaurant must not add a second copy")
+        XCTAssertEqual(merged.first?.name, "New Name")
+        XCTAssertEqual(merged.first?.menuItems.count, 3)
+    }
+
+    func testMergeAddsRestaurantsNotSeenBefore() {
+        let merged = CatalogMerge.apply(
+            changes: [restaurant("Newcomer", id: "00000000-0000-4000-8000-000000000002")],
+            to: [restaurant("Known", id: "00000000-0000-4000-8000-000000000001")],
+            origin: RestaurantSearch.pilotCenter, radiusKm: 25
+        )
+        XCTAssertEqual(merged.map(\.name), ["Known", "Newcomer"])
+    }
+
+    func testMergeDropsARestaurantWhoseItemsWereAllUnpublished() {
+        // The server sends the restaurant back with an empty menu; leaving it in
+        // the cache would keep an unqualified restaurant on screen forever.
+        let id = "00000000-0000-4000-8000-000000000001"
+        let merged = CatalogMerge.apply(
+            changes: [restaurant("Gone Veg-free", id: id, items: 0)],
+            to: [restaurant("Was Fine", id: id, items: 2)],
+            origin: RestaurantSearch.pilotCenter, radiusKm: 25
+        )
+        XCTAssertTrue(merged.isEmpty)
+    }
+
+    func testMergeDropsRestaurantsOutsideTheRadius() {
+        // Left over from an earlier, wider sync.
+        let far = restaurant("Far Away", id: "00000000-0000-4000-8000-000000000002", lat: 41.0, lon: -104.98)
+        let merged = CatalogMerge.apply(
+            changes: [], to: [restaurant("Near", id: "00000000-0000-4000-8000-000000000001"), far],
+            origin: RestaurantSearch.pilotCenter, radiusKm: 25
+        )
+        XCTAssertEqual(merged.map(\.name), ["Near"])
+    }
+
+    @MainActor
+    func testCatalogURLAsksForEverythingWhenThereIsNoWatermark() throws {
+        let url = try XCTUnwrap(RestaurantCatalog.catalogURL(
+            base: URL(string: "https://example.com/v1/catalog"), latitude: 39.734, longitude: -104.98
+        ))
+        let query = try XCTUnwrap(URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems)
+        XCTAssertEqual(query.first { $0.name == "lat" }?.value, "39.734")
+        XCTAssertNil(query.first { $0.name == "since" }, "a first sync must not filter by time")
+        XCTAssertNil(query.first { $0.name == "cursor" })
+    }
+
+    @MainActor
+    func testCatalogURLCarriesTheWatermarkAndCursorWhenSyncingChanges() throws {
+        let since = Date(timeIntervalSince1970: 1_788_000_000.25)
+        let url = try XCTUnwrap(RestaurantCatalog.catalogURL(
+            base: URL(string: "https://example.com/v1/catalog"), latitude: 39.734, longitude: -104.98,
+            since: since, cursor: "abc123"
+        ))
+        let query = try XCTUnwrap(URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems)
+        let sent = try XCTUnwrap(query.first { $0.name == "since" }?.value)
+        XCTAssertEqual(query.first { $0.name == "cursor" }?.value, "abc123")
+        // The server compares timestamps, so a lossy format would lose updates.
+        XCTAssertTrue(sent.contains(".250"), "the watermark must keep sub-second precision, got \(sent)")
+        XCTAssertEqual(
+            try XCTUnwrap(RestaurantCatalog.decoder.decode(
+                [Date].self, from: Data("[\"\(sent)\"]".utf8)
+            ).first).timeIntervalSince1970,
+            since.timeIntervalSince1970, accuracy: 0.001,
+            "the watermark must survive the round trip it will be compared against"
+        )
+    }
+
+    @MainActor
+    func testCachedSnapshotSurvivesARoundTrip() throws {
+        // A snapshot that cannot be read back means every launch is a full sync.
+        let snapshot = CatalogSnapshot(
+            syncedAt: Date(timeIntervalSince1970: 1_788_000_000.5),
+            latitude: 39.734, longitude: -104.98,
+            restaurants: [restaurant("Cached", id: "00000000-0000-4000-8000-000000000001", items: 2)]
+        )
+        let data = try RestaurantCatalog.encoder.encode(snapshot)
+        let restored = try RestaurantCatalog.decoder.decode(CatalogSnapshot.self, from: data)
+
+        XCTAssertEqual(restored.restaurants.map(\.name), ["Cached"])
+        XCTAssertEqual(restored.restaurants.first?.menuItems.count, 2)
+        XCTAssertEqual(restored.latitude, 39.734)
+        XCTAssertEqual(
+            try XCTUnwrap(restored.syncedAt).timeIntervalSince1970,
+            1_788_000_000.5, accuracy: 0.001
+        )
+    }
+
+    @MainActor
+    func testAnUnsyncedCatalogNeverClaimsToCoverAPlace() {
+        let catalog = RestaurantCatalog(
+            endpoint: URL(string: "http://127.0.0.1:1/v1/catalog"),
+            cacheURL: FileManager.default.temporaryDirectory
+                .appendingPathComponent(UUID().uuidString + ".json")
+        )
+        // Before anything has synced, a location fix must still trigger a fetch.
+        XCTAssertFalse(catalog.alreadyCovers(latitude: 39.7340, longitude: -104.9800))
+    }
+
     private var minimalCatalogJSON: String {
         """
         {

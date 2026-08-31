@@ -29,6 +29,17 @@ items advances its `updatedAt`. A client stores the `syncedAt` it was given and
 passes it back as `since` to fetch only what changed. Follow `nextCursor` until it
 is null; cursors are opaque and an unreadable one restarts from the beginning.
 
+`since` and the nearby parameters combine: `?since=…&lat=…&lon=…&radiusKm=…` is
+"what changed near me", paged by cursor. Distance ranking cannot be paged — it
+reads the whole bounding box — so a delta is ordered by `updatedAt` and the radius
+is applied as a filter, which keeps the cursor meaningful. `syncedAt` is the
+newest record the page examined, not the last one listed; a watermark taken from
+the wrong ordering would skip past changes the client never received.
+
+The iPhone app uses this: a first run fetches the radius in full, and every later
+launch sends `since`. On the pilot catalog that is 20,865 bytes once, then 115
+bytes per launch when nothing has changed.
+
 Nearby queries prefilter with a bounding box in SQL and then rank by true
 distance, so `radiusKm` is exact rather than a box approximation.
 

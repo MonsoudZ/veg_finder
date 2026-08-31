@@ -71,15 +71,14 @@ struct NearbyRestaurantsView: View {
                 )
             }
             .onChange(of: locationManager.location) { _, newLocation in
-                // The first fix usually arrives after the initial load, and the
-                // catalog is now scoped to a radius rather than the whole city.
+                // The first fix usually arrives just after the initial load, and
+                // is often the same place the catalog already synced — reacting to
+                // it then would repeat the request that just ran.
                 guard let newLocation else { return }
-                Task {
-                    await catalog.refresh(
-                        latitude: newLocation.coordinate.latitude,
-                        longitude: newLocation.coordinate.longitude
-                    )
-                }
+                let latitude = newLocation.coordinate.latitude
+                let longitude = newLocation.coordinate.longitude
+                guard !catalog.alreadyCovers(latitude: latitude, longitude: longitude) else { return }
+                Task { await catalog.refresh(latitude: latitude, longitude: longitude) }
             }
         }
         .tint(.green)

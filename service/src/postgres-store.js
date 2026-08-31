@@ -183,9 +183,14 @@ export class PostgresStore {
       conditions.push(`(name, id) > (${placeholder(resume.name)}, ${placeholder(resume.id)}::uuid)`);
     }
 
+    const geographic = latitude != null && longitude != null;
+    // Mirrors database.js: distance ranking reads the whole box and cannot page,
+    // so a delta always pages even when scoped to a radius.
+    const rankByDistance = geographic && !since;
+
     const where = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
     const order = since ? "COALESCE(updated_at, verified_at), id" : "name, id";
-    const limitClause = latitude == null ? `LIMIT ${placeholder(limit + 1)}` : "";
+    const limitClause = rankByDistance ? "" : `LIMIT ${placeholder(limit + 1)}`;
     const { rows } = await this.pool.query(`
       SELECT id, name, neighborhood, address, latitude, longitude, menu_url,
              verified_at, coverage_status, coverage_scope, audited_at,
@@ -194,22 +199,30 @@ export class PostgresStore {
       FROM restaurants ${where} ORDER BY ${order} ${limitClause}
     `, parameters);
 
-    let selected = rows;
+    let examined = rows;
     let nextCursor = null;
-    if (latitude != null && longitude != null) {
-      selected = rows
+    if (rankByDistance) {
+      examined = rows
         .map((row) => ({ row, km: distanceKm(latitude, longitude, row.latitude, row.longitude) }))
         .filter((entry) => entry.km <= radiusKm)
         .sort((a, b) => a.km - b.km)
         .slice(0, limit)
         .map((entry) => entry.row);
     } else if (rows.length > limit) {
-      selected = rows.slice(0, limit);
-      const last = selected[selected.length - 1];
+      examined = rows.slice(0, limit);
+      const last = examined[examined.length - 1];
       nextCursor = encodeCursor(
         since ? { updatedAt: iso(last.updated_at), id: last.id } : { name: last.name, id: last.id }
       );
     }
+
+    const watermark = examined.reduce(
+      (latest, row) => (latest === null || iso(row.updated_at) > latest ? iso(row.updated_at) : latest), null
+    );
+    const selected = rankByDistance
+      ? examined
+      : examined.filter((row) => !geographic
+          || distanceKm(latitude, longitude, row.latitude, row.longitude) <= radiusKm);
 
     const { rows: items } = selected.length === 0 ? { rows: [] } : await this.pool.query(`
       SELECT id, restaurant_id, name, description, price, dietary_status,
@@ -221,9 +234,7 @@ export class PostgresStore {
 
     return {
       generatedAt: new Date().toISOString(),
-      syncedAt: selected.length
-        ? iso(selected[selected.length - 1].updated_at)
-        : (since ?? null),
+      syncedAt: watermark ?? since ?? null,
       restaurants: selected.map((row) => publicRestaurant(row, itemsByRestaurant.get(row.id) ?? [])),
       nextCursor
     };

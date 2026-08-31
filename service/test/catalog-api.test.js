@@ -228,3 +228,70 @@ test("menu input enforces the rules the app relies on", () => {
   assert.equal(duplicated.valid, false);
   assert.match(duplicated.errors.join(" "), /duplicated/);
 });
+
+test("a delta scoped to a radius can still be paged to completion", async () => {
+  // Distance ranking cannot page. A delta must, or a client with more changes
+  // than fit in one page silently loses the rest.
+  const store = freshStore("delta-paged");
+  await store.importSeed();
+
+  const seen = [];
+  let cursor;
+  let pages = 0;
+  do {
+    const page = await store.getCatalogPage({
+      since: "2000-01-01T00:00:00.000Z", ...CAPITOL_HILL, radiusKm: 50, limit: 3, cursor
+    });
+    seen.push(...page.restaurants.map((r) => r.id));
+    cursor = page.nextCursor;
+    assert.ok(++pages < 20, "pagination must terminate");
+  } while (cursor);
+
+  assert.equal(seen.length, 10, "every changed restaurant in range must be reachable");
+  assert.equal(new Set(seen).size, 10);
+  assert.ok(pages > 1, "the delta must actually have been split");
+  await store.close();
+});
+
+test("a delta respects the radius it was given", async () => {
+  const store = freshStore("delta-radius");
+  await store.importSeed();
+  await store.upsertRestaurant(validateRestaurant(restaurantInput({
+    name: "Far Away", latitude: 40.5, longitude: -104.98
+  })).value);
+
+  const near = await store.getCatalogPage({
+    since: "2000-01-01T00:00:00.000Z", ...CAPITOL_HILL, radiusKm: 5, limit: 100
+  });
+  assert.ok(!near.restaurants.some((r) => r.name === "Far Away"), "out-of-range changes are not sent");
+
+  const wide = await store.getCatalogPage({
+    since: "2000-01-01T00:00:00.000Z", ...CAPITOL_HILL, radiusKm: 200, limit: 100
+  });
+  assert.ok(wide.restaurants.some((r) => r.name === "Far Away"));
+  await store.close();
+});
+
+test("the sync watermark is the newest record seen, not the last one listed", async () => {
+  const store = freshStore("watermark");
+  await store.importSeed();
+  // Touch a restaurant that sorts last by distance and first by name, so an
+  // ordering-based watermark would be wrong.
+  const [first] = (await store.getCatalogPage({ limit: 1 })).restaurants;
+  await store.reconcileRestaurant(first.id, {
+    coverageStatus: "Complete",
+    menuItems: [{
+      id: "cccccccc-0000-4000-8000-000000000009", name: "New Dish", description: "",
+      price: "$9", dietaryStatus: "Vegan", modificationNote: null, sourceEvidence: "menu"
+    }]
+  });
+
+  const page = await store.getCatalogPage({ ...CAPITOL_HILL, radiusKm: 50, limit: 100 });
+  const newest = page.restaurants.map((r) => r.updatedAt).sort().at(-1);
+  assert.equal(page.syncedAt, newest, "a watermark past an unseen change would lose it");
+
+  // Using it must return nothing further.
+  const after = await store.getCatalogPage({ since: page.syncedAt, ...CAPITOL_HILL, radiusKm: 50, limit: 100 });
+  assert.equal(after.restaurants.length, 0);
+  await store.close();
+});

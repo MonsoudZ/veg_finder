@@ -453,35 +453,51 @@ export class SQLiteStore {
       parameters.push(resume.name, resume.id);
     }
 
+    const geographic = latitude != null && longitude != null;
+    // Distance ranking reads the whole bounding box, so it cannot be paged. A
+    // delta always pages, even when scoped to a radius — otherwise a client
+    // syncing more changes than one page silently loses the rest.
+    const rankByDistance = geographic && !since;
+
     const where = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
     const order = since ? "COALESCE(updated_at, verified_at), id" : "name COLLATE NOCASE, id";
-    // Nearby ranking happens after the box filter, so read the whole box.
     const sql = `
       SELECT id, name, neighborhood, address, latitude, longitude, menu_url,
              verified_at, coverage_status, coverage_scope, audited_at,
              last_checked_at, COALESCE(updated_at, verified_at) AS updated_at,
              menu_profile, verification_method
       FROM restaurants ${where} ORDER BY ${order}
-      ${latitude == null ? "LIMIT ?" : ""}
+      ${rankByDistance ? "" : "LIMIT ?"}
     `;
-    if (latitude == null) parameters.push(limit + 1);
-    let rows = this.database.prepare(sql).all(...parameters);
+    if (!rankByDistance) parameters.push(limit + 1);
+    const fetched = this.database.prepare(sql).all(...parameters);
 
+    let examined = fetched;
     let nextCursor = null;
-    if (latitude != null && longitude != null) {
-      rows = rows
+    if (rankByDistance) {
+      examined = fetched
         .map((row) => ({ row, distanceKm: distanceKm(latitude, longitude, row.latitude, row.longitude) }))
         .filter((entry) => entry.distanceKm <= radiusKm)
         .sort((a, b) => a.distanceKm - b.distanceKm)
         .slice(0, limit)
         .map((entry) => entry.row);
-    } else if (rows.length > limit) {
-      rows = rows.slice(0, limit);
-      const last = rows[rows.length - 1];
+    } else if (fetched.length > limit) {
+      examined = fetched.slice(0, limit);
+      const last = examined[examined.length - 1];
       nextCursor = encodeCursor(
         since ? { updatedAt: last.updated_at, id: last.id } : { name: last.name, id: last.id }
       );
     }
+
+    // The watermark covers everything examined, including records the radius
+    // filter drops — they have been seen and need not be sent again.
+    const watermark = examined.reduce(
+      (latest, row) => (latest === null || row.updated_at > latest ? row.updated_at : latest), null
+    );
+    const rows = rankByDistance
+      ? examined
+      : examined.filter((row) => !geographic
+          || distanceKm(latitude, longitude, row.latitude, row.longitude) <= radiusKm);
 
     const selectItems = this.database.prepare(`
       SELECT id, name, description, price, dietary_status, modification_note
@@ -492,7 +508,7 @@ export class SQLiteStore {
 
     return {
       generatedAt: new Date().toISOString(),
-      syncedAt: rows.length ? rows[rows.length - 1].updated_at : (since ?? null),
+      syncedAt: watermark ?? since ?? null,
       restaurants,
       nextCursor
     };
