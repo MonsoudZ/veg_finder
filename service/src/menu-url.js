@@ -48,11 +48,24 @@ export function findMenuURL(html, pageURL) {
     if (/^\s*(view\s+|our\s+|the\s+|see\s+)?menus?\s*$/i.test(text)) score += 9;
     else if (MENU_WORD.test(text)) score += 5;
     if (FOOD_WORDS.test(haystack)) score += 2;
-    if (target.origin === base.origin) score += 3;
+    const platform = JAVASCRIPT_PLATFORMS.test(target.hostname);
+    const sameOrigin = target.origin === base.origin;
+    if (sameOrigin) score += 3;
     // An ordering platform *is* the menu for a great many restaurants, so a link
     // to one is evidence rather than noise — enough to carry a link whose text
     // says "menu" but whose path does not.
-    if (JAVASCRIPT_PLATFORMS.test(target.hostname)) score += 4;
+    else if (platform) score += 4;
+    // A menu on a third domain that is neither this restaurant's nor a known
+    // ordering platform is usually a parent brand's. Found in the wild: a vegan
+    // restaurant's site linked to its franchise owner's menu, which belongs to a
+    // hot dog chain. Accepting it would have filed beef and sausage under a
+    // restaurant tagged vegan-only, which is the precise failure this catalog
+    // exists to prevent — and no score is worth trusting against that, because
+    // the link looks perfect. It reads "Menu" and it points at /menu/.
+    //
+    // So it is never the answer. It is offered to a person as an alternative,
+    // and the restaurant is reported as needing a menu URL by hand.
+    const crossBrand = !sameOrigin && !platform;
     // A menu mentioned in an article is being written about, not served.
     if (/\/(blog|news|press|article|post|stories)\//.test(path)) score -= 6;
     // A PDF or image menu is a legitimate source — it fingerprints, it just has
@@ -64,7 +77,8 @@ export function findMenuURL(html, pageURL) {
     scored.push({
       url: target.toString(),
       score,
-      sameOrigin: target.origin === base.origin,
+      crossBrand,
+      sameOrigin,
       likelyDocument: isDocument,
       javascriptPlatform: JAVASCRIPT_PLATFORMS.test(target.hostname),
       text: text.slice(0, 80)
@@ -74,7 +88,15 @@ export function findMenuURL(html, pageURL) {
   if (scored.length === 0) return null;
   scored.sort((a, b) => b.score - a.score || a.url.length - b.url.length);
 
-  const best = scored[0];
+  // A cross-brand link is never chosen, only offered.
+  const best = scored.find((entry) => !entry.crossBrand);
+  if (!best) {
+    return {
+      url: null,
+      reason: "the only menu link found belongs to another domain, which is usually a parent brand",
+      alternatives: scored.slice(0, 3).map((entry) => entry.url)
+    };
+  }
   // Below this a "match" is a stray word rather than a link to a menu, and a
   // wrong menu URL is worse than none: it fingerprints a page that never
   // changes and reports coverage nobody can eat from.
@@ -95,7 +117,11 @@ export async function resolveMenuURL(website, { fetchImpl = fetch, timeoutMs = 1
     if (!response.ok) return { url: null, reason: `HTTP ${response.status}` };
     const found = findMenuURL(await response.text(), response.url || website);
     if (!found) return { url: null, reason: "no menu link found on the homepage" };
-    return { ...found, reason: null };
+    // findMenuURL returns a url-less result with its own reason when the only
+    // candidate belonged to another brand. Keeping that reason matters: "we
+    // found a menu and refused it" is a different job for a person than "there
+    // was nothing here".
+    return found.url ? { ...found, reason: null } : found;
   } catch (error) {
     return { url: null, reason: String(error.message ?? error) };
   }

@@ -48,7 +48,18 @@ export async function loadBrowserSource(url, { executablePath, timeoutMs = 45_00
     }
   } finally {
     if (child.exitCode === null) child.kill("SIGKILL");
-    rmSync(profileDirectory, { recursive: true, force: true });
+    // Best effort, and deliberately so. The kill is asynchronous, so Chrome is
+    // often still writing its profile when this runs and the removal fails with
+    // ENOTEMPTY. Throwing from a finally block replaces whatever the try block
+    // returned — which meant a menu that had been fetched perfectly well was
+    // discarded because a temporary directory would not delete. A leftover
+    // directory in the system temp folder is the smaller problem, and the OS
+    // clears it.
+    try {
+      rmSync(profileDirectory, { recursive: true, force: true });
+    } catch {
+      // Ignored: see above.
+    }
   }
 }
 

@@ -98,3 +98,27 @@ test("javascript and fragment links are never followed", () => {
   assert.equal(findMenuURL(page('<a href="#menu">Menu</a>'), HOME), null);
   assert.equal(findMenuURL(page('<a href="mailto:x@example.com">Menu</a>'), HOME), null);
 });
+
+test("a menu on another brand's domain is offered, never chosen", async () => {
+  // Found in the wild on the first real Denver batch. A restaurant tagged
+  // diet:vegan=only linked from its own site to its franchise owner's menu,
+  // which belongs to a hot dog chain: 13 chicken, 12 beef, 9 sausage. The link
+  // is indistinguishable from a correct one by score alone — it reads "Menu" and
+  // points at /menu/ — so scoring cannot be the defence.
+  const found = findMenuURL(
+    page('<a href="https://doghaus.com/menu/">Menu</a>'), "https://www.plantbtogo.com/"
+  );
+
+  assert.equal(found.url, null, "beef must never be filed under a vegan restaurant");
+  assert.match(found.reason, /another domain/);
+  assert.deepEqual(found.alternatives, ["https://doghaus.com/menu/"], "a person can still see it");
+});
+
+test("a restaurant's own menu still wins over a parent brand's", () => {
+  const found = findMenuURL(page(`
+    <a href="https://parentbrand.example.net/menu/">Menu</a>
+    <a href="/menu">Our Menu</a>
+  `), "https://example.com/");
+
+  assert.equal(found.url, "https://example.com/menu");
+});
