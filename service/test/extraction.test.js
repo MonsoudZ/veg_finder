@@ -370,3 +370,80 @@ test("numbers that are not prices never become one", () => {
     assert.equal(result.items.length, 0, `"${line}" must not be read as a price`);
   }
 });
+
+test("a whole-menu claim on a linked page is read, quoted, and marked as linked", () => {
+  // The Cake Bar's menu page lists cakes and never uses the word vegan; the
+  // claim that makes all of them vegan lives on the home page.
+  const menu = page(`
+    <h2>BAKED GOODS</h2>
+    <p>Fudge Brownies</p>
+    <p>$6.50 ea.</p>
+  `);
+  const claim = page("<h1>The Cake Bar - Denver&#039;s Favorite Vegan Bakery</h1>");
+
+  assert.equal(extractMenu(menu).tier, TIERS.MANUAL);
+
+  const result = extractMenu(menu, { claimHTML: claim });
+  assert.equal(result.tier, TIERS.FULLY_VEGAN);
+  assert.equal(result.assertedBy, "linked-claim");
+  assert.deepEqual(result.items.map((item) => item.name), ["Fudge Brownies"]);
+  assert.equal(result.items[0].dietaryStatus, "Vegan");
+  // The words that justified publishing a whole menu are recorded, not merely
+  // the fact that something matched.
+  assert.match(result.reasons[0], /Denver's Favorite Vegan Bakery/);
+});
+
+test("a claim on the menu itself is distinguished from a claim on a linked page", () => {
+  const result = extractMenu(
+    page(`
+      <p>We are a 100% vegan kitchen.</p>
+      <p>Fudge Brownies</p>
+      <p>$6.50</p>
+    `),
+    { claimHTML: page("<p>Somewhere else entirely</p>") }
+  );
+  assert.equal(result.assertedBy, "detection");
+  assert.match(result.reasons[0], /menu page states/);
+});
+
+test("a linked page that makes no whole-menu claim changes nothing", () => {
+  // City, O' City's about page describes its sister restaurant Watercourse as
+  // plant-based. A linked page must still make a claim about a whole menu;
+  // "vegetarian options" and prose about another business are not that.
+  const menu = page(`
+    <p>Fried Cheese</p>
+    <p>$9</p>
+  `);
+  const vague = page("<p>Where veggies meet comfort food. Plenty of vegetarian options.</p>");
+  assert.equal(extractMenu(menu, { claimHTML: vague }).tier, TIERS.MANUAL);
+});
+
+test("a price line's leftover text does not become a dish", () => {
+  // A two-column layout prints "$6.50 ea." twice. Stripping the price off the
+  // second one left "ea" behind as a dish with a price, and on a wholly vegan
+  // menu that publishes without anybody seeing it.
+  const result = extractMenu(page(`
+    <h1>Denver's Favorite Vegan Bakery</h1>
+    <p>Fudge Brownies</p>
+    <p>$6.50 ea.</p>
+    <p>$6.50 ea.</p>
+    <p>B.L.A.T</p>
+    <p>$12.00</p>
+  `));
+  const names = result.items.map((item) => item.name);
+  assert.ok(!names.includes("ea"), `"ea" is not a dish: ${JSON.stringify(names)}`);
+  // Letters are counted rather than required to run consecutively, because this
+  // is a real sandwich and has no run of three.
+  assert.ok(names.includes("B.L.A.T"), `B.L.A.T is a dish: ${JSON.stringify(names)}`);
+});
+
+test("a zero-padded numeric entity is decoded like its unpadded twin", () => {
+  const result = extractMenu(page(`
+    <h1>Angie&#039;s Vegan Bakery</h1>
+    <p>Angie&#39;s Brownie</p>
+    <p>$6.50</p>
+  `));
+  assert.equal(result.items[0].name, "Angie's Brownie");
+  assert.match(result.reasons[0], /Angie's Vegan Bakery/);
+  assert.ok(!result.reasons[0].includes("&#"), "no undecoded entity reaches a published quote");
+});

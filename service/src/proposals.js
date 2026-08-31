@@ -50,7 +50,29 @@ export async function proposeMenu(store, restaurant, {
   }
 
   const html = await fetchSource(restaurant, { fetchImpl, browserFetchImpl });
-  const extraction = extractMenu(html, { menuProfile: restaurant.menu_profile });
+
+  // Change detection works on a PDF — a fingerprint over the bytes notices an
+  // edit perfectly well — but extraction does not, because there is no text to
+  // read. Saying so beats the alternative, which was to report that the menu
+  // published no dietary legend: true of a PDF in the way it is true of a
+  // photograph, and it sends whoever reads it looking for the wrong problem.
+  if (looksBinary(html)) {
+    return {
+      restaurantID: restaurant.id, name: restaurant.name, tier: TIERS.MANUAL,
+      reasons: [
+        "The official source is a PDF or other binary document. Its changes are " +
+        "still detected, but its dishes cannot be read as text, so they have to " +
+        "be recorded by a person."
+      ],
+      items: [], published: false, requiresReview: true
+    };
+  }
+
+  const claim = await loadClaimPage(restaurant, fetchImpl);
+  const extraction = extractMenu(html, {
+    menuProfile: restaurant.menu_profile, claimHTML: claim.html
+  });
+  if (claim.error) extraction.reasons.push(claim.error);
 
   // Tiers 1 and 2 read the restaurant's own labelling. When the menu carries
   // none, the choice is a human reading it or a model drafting for a human —
@@ -103,13 +125,25 @@ export async function proposeMenu(store, restaurant, {
     published: false
   };
 
-  const publishable = validated.valid && result.items.length > 0 && tiers.has(extraction.tier);
+  // A whole-menu claim read off a page other than the menu is strong enough to
+  // draft every dish from, but not to publish unseen — the claim may belong to a
+  // sister restaurant rather than this one. One confirmation covers the whole
+  // menu, so this costs a reviewer a single click for all of a restaurant's
+  // dishes rather than one per dish.
+  const linkedClaim = extraction.assertedBy === "linked-claim";
+  const publishable =
+    validated.valid && result.items.length > 0 && tiers.has(extraction.tier) && !linkedClaim;
   if (!publishable && result.items.length > 0) {
     // Held back rather than discarded: a reviewer decides on these later.
     await store.saveProposals(restaurant.id, { tier: extraction.tier, items: result.items });
   }
   if (!publishable) {
-    if (!tiers.has(extraction.tier)) {
+    if (linkedClaim) {
+      result.reasons.push(
+        "The whole-menu claim was found on a linked page rather than the menu, " +
+        "so one reviewer confirms it before any of these dishes publish"
+      );
+    } else if (!tiers.has(extraction.tier)) {
       result.reasons.push(`Tier "${extraction.tier}" is not configured to publish without review`);
     }
     if (!validated.valid) result.reasons.push("Extracted items failed validation");
@@ -125,6 +159,42 @@ export async function proposeMenu(store, restaurant, {
   result.publishedAt = now().toISOString();
   return result;
 }
+
+// A PDF announces itself; anything else is judged by how much of the first few
+// kilobytes is unprintable, which is what separates a document from markup.
+function looksBinary(source) {
+  const text = String(source ?? "");
+  if (text.startsWith("%PDF-")) return true;
+  const sample = text.slice(0, 4_000);
+  if (!sample) return false;
+  const unprintable = sample.replace(/[\t\n\r\x20-\x7e\u00a0-\uffff]/g, "").length;
+  return unprintable / sample.length > 0.05;
+}
+
+// The page an operator nominated as carrying the restaurant's whole-menu claim.
+// A failure here is never fatal: without the claim the restaurant simply falls
+// back to whatever its menu says on its own, which errs towards less publishing
+// rather than more. It is still reported, because a claim page that quietly
+// stopped resolving would otherwise look identical to a restaurant that never
+// made a claim.
+async function loadClaimPage(restaurant, fetchImpl = fetch) {
+  if (!restaurant.claim_url) return { html: null, error: null };
+  try {
+    const response = await fetchImpl(restaurant.claim_url, {
+      headers: { "user-agent": CLAIM_USER_AGENT }, redirect: "follow"
+    });
+    if (!response.ok) {
+      return { html: null, error: `Claim page ${restaurant.claim_url} returned HTTP ${response.status}` };
+    }
+    return { html: await response.text(), error: null };
+  } catch (error) {
+    return { html: null, error: `Claim page ${restaurant.claim_url} was unreachable: ${error.message}` };
+  }
+}
+
+const CLAIM_USER_AGENT =
+  "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 " +
+  "(KHTML, like Gecko) Chrome/124.0 Safari/537.36 VegFinderBot/1.0";
 
 function coverageScopeFor(extraction) {
   switch (extraction.tier) {

@@ -65,22 +65,63 @@ const WHOLLY_VEGETARIAN_CLAIM = new RegExp([
   /\b(a|an)?\s*(100\s*%\s*)?vegetarian\s+(restaurant|cafe|café|bakery|kitchen|eatery|deli)\b/
 ].map((pattern) => pattern.source).join("|"), "i");
 
-export function extractMenu(html, { menuProfile = "unknown" } = {}) {
+// A whole-menu claim publishes every dish on a page without a human ever seeing
+// it, so record the words that justified it rather than only that they matched.
+// Somebody auditing a tier-1 restaurant later can then check the claim instead
+// of taking the tier on trust.
+function findClaim(page, pattern) {
+  const match = page.match(pattern);
+  if (!match) return null;
+  const start = page.lastIndexOf("\n", match.index) + 1;
+  const end = page.indexOf("\n", match.index + match[0].length);
+  const line = page.slice(start, end === -1 ? page.length : end).trim();
+  return line.length > 240 ? `${line.slice(0, 237)}...` : line;
+}
+
+// A claim printed on the menu is self-evidently about that menu. A claim found
+// on another page is about *some* business, and not always this one: City, O'
+// City's about page calls Watercourse Foods "a fully plant-based scratch
+// kitchen" — a true sentence about a different, sister restaurant, and reading
+// it as City, O' City's own claim would publish "Vegan" across a menu that
+// serves dairy. So a linked claim is distinguished from a claim on the menu, and
+// the publishing policy holds it back for one human confirmation.
+function assertedBy(byOperator, claim) {
+  if (byOperator) return "operator";
+  return claim?.source === "linked claim page" ? "linked-claim" : "detection";
+}
+
+// A restaurant whose whole menu is vegan usually says so on its home or about
+// page, not on the menu — the menu just lists food. Reading the menu page alone
+// therefore misses the single most valuable claim a site can make, which is why
+// an operator may point at the page that carries it. These are still the
+// restaurant's own words; only where we looked for them has changed.
+export function extractMenu(html, { menuProfile = "unknown", claimHTML = null } = {}) {
   const blocks = textBlocks(html);
   const page = blocks.join(" \n ");
+  const claimPage = claimHTML ? textBlocks(claimHTML).join(" \n ") : null;
   const reasons = [];
+
+  const claimFor = (pattern) => {
+    const onMenu = findClaim(page, pattern);
+    if (onMenu) return { quote: onMenu, source: "menu page" };
+    const linked = claimPage ? findClaim(claimPage, pattern) : null;
+    return linked ? { quote: linked, source: "linked claim page" } : null;
+  };
 
   const legend = readLegend(page);
   const operatorSaysVegan = menuProfile === TIERS.FULLY_VEGAN;
-  const pageSaysVegan = WHOLLY_VEGAN_CLAIM.test(page);
+  const veganClaim = claimFor(WHOLLY_VEGAN_CLAIM);
 
   if (operatorSaysVegan) reasons.push("Operator recorded this restaurant as entirely vegan");
-  else if (pageSaysVegan) reasons.push("The page states the whole menu is vegan");
+  else if (veganClaim) {
+    reasons.push(`The ${veganClaim.source} states the whole menu is vegan: "${veganClaim.quote}"`);
+  }
 
-  if (operatorSaysVegan || pageSaysVegan) {
+  if (operatorSaysVegan || veganClaim) {
     return {
       tier: TIERS.FULLY_VEGAN,
-      assertedBy: operatorSaysVegan ? "operator" : "detection",
+      assertedBy: assertedBy(operatorSaysVegan, veganClaim),
+      claim: veganClaim,
       legend: null,
       reasons,
       items: collectItems(blocks, () => ({ dietaryStatus: "Vegan" }))
@@ -88,14 +129,19 @@ export function extractMenu(html, { menuProfile = "unknown" } = {}) {
   }
 
   const operatorSaysVegetarian = menuProfile === TIERS.FULLY_VEGETARIAN;
-  const pageSaysVegetarian = WHOLLY_VEGETARIAN_CLAIM.test(page);
+  const vegetarianClaim = claimFor(WHOLLY_VEGETARIAN_CLAIM);
   if (operatorSaysVegetarian) reasons.push("Operator recorded this restaurant as entirely vegetarian");
-  else if (pageSaysVegetarian) reasons.push("The page states the whole menu is vegetarian");
+  else if (vegetarianClaim) {
+    reasons.push(
+      `The ${vegetarianClaim.source} states the whole menu is vegetarian: "${vegetarianClaim.quote}"`
+    );
+  }
 
-  if (operatorSaysVegetarian || pageSaysVegetarian) {
+  if (operatorSaysVegetarian || vegetarianClaim) {
     return {
       tier: TIERS.FULLY_VEGETARIAN,
-      assertedBy: operatorSaysVegetarian ? "operator" : "detection",
+      assertedBy: assertedBy(operatorSaysVegetarian, vegetarianClaim),
+      claim: vegetarianClaim,
       legend: null,
       reasons,
       // Meat-free, but the cheese is real cheese.
@@ -141,6 +187,16 @@ export function extractMenu(html, { menuProfile = "unknown" } = {}) {
   return { tier: TIERS.MANUAL, assertedBy: null, legend, reasons, items: [] };
 }
 
+const UNIT_OF_SALE =
+  /^(ea|each|per|pp|lb|lbs|oz|g|kg|ct|pc|pcs|dz|doz|dozen|slice|slices|serving|servings)\b\.?$/i;
+
+// Counts letters rather than looking for three in a row: "B.L.A.T" is a real
+// sandwich and has no run of three, while the "ea" left behind by a "$6.00 ea."
+// price line has only two letters in total.
+function isDishName(name) {
+  return (name.match(/[A-Za-z]/g) ?? []).length >= 3 && !UNIT_OF_SALE.test(name);
+}
+
 function collectItems(blocks, classify) {
   const items = [];
   const seen = new Set();
@@ -159,7 +215,11 @@ function collectItems(blocks, classify) {
     if (!price) continue;
 
     const name = readName(block);
-    if (!name) continue;
+    // A price printed on its own line — "$6.00 ea." — leaves a scrap behind once
+    // the price is removed, and a wholly-vegan menu publishes without review, so
+    // that scrap would reach a diner as a dish nobody can order. A real dish name
+    // has at least one whole word in it and is not just a unit of sale.
+    if (!name || !isDishName(name)) continue;
 
     const key = name.toLowerCase();
     if (seen.has(key)) continue;
@@ -301,11 +361,28 @@ export function textBlocks(html) {
 
 function decodeEntities(text) {
   return text
-    .replace(/&nbsp;|&#160;/gi, " ")
-    .replace(/&amp;|&#38;/gi, "&")
-    .replace(/&quot;|&#34;/gi, '"')
-    .replace(/&#39;|&apos;|&rsquo;|&#8217;/gi, "'")
-    .replace(/&lt;|&#60;/gi, "<")
-    .replace(/&gt;|&#62;/gi, ">")
-    .replace(/&eacute;|&#233;/gi, "é");
+    .replace(/&nbsp;/gi, " ")
+    .replace(/&amp;/gi, "&")
+    .replace(/&quot;/gi, '"')
+    .replace(/&apos;|&rsquo;|&lsquo;/gi, "'")
+    .replace(/&ldquo;|&rdquo;/gi, '"')
+    .replace(/&ndash;/gi, "–")
+    .replace(/&mdash;/gi, "—")
+    .replace(/&lt;/gi, "<")
+    .replace(/&gt;/gi, ">")
+    .replace(/&eacute;/gi, "é")
+    // Numeric entities may be zero-padded: "&#039;" is the same apostrophe as
+    // "&#39;". Decoding by value rather than by matching each spelling stops an
+    // undecoded entity leaking into a dish name or a published evidence quote.
+    .replace(/&#(\d{1,7});/g, (whole, code) => codePoint(Number(code), whole))
+    .replace(/&#[xX]([0-9a-fA-F]{1,6});/g, (whole, code) => codePoint(parseInt(code, 16), whole));
+}
+
+function codePoint(code, fallback) {
+  if (!Number.isInteger(code) || code < 32 || code > 0x10ffff) return fallback;
+  try {
+    return String.fromCodePoint(code);
+  } catch {
+    return fallback;
+  }
 }

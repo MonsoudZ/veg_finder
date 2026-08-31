@@ -65,13 +65,14 @@ export class PostgresStore {
         await client.query(`
           INSERT INTO restaurants (
             id, name, neighborhood, address, latitude, longitude, menu_url, check_url,
-            extraction_mode, verified_at, coverage_status, coverage_scope, audited_at,
-            review_required, updated_at
-          ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,FALSE,$13)
+            claim_url, extraction_mode, verified_at, coverage_status, coverage_scope,
+            audited_at, review_required, updated_at
+          ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,FALSE,$14)
           ON CONFLICT(id) DO UPDATE SET
             name=EXCLUDED.name, neighborhood=EXCLUDED.neighborhood, address=EXCLUDED.address,
             latitude=EXCLUDED.latitude, longitude=EXCLUDED.longitude,
             menu_url=EXCLUDED.menu_url, check_url=EXCLUDED.check_url,
+            claim_url=EXCLUDED.claim_url,
             extraction_mode=EXCLUDED.extraction_mode, verified_at=EXCLUDED.verified_at,
             coverage_scope=EXCLUDED.coverage_scope, audited_at=EXCLUDED.audited_at,
             updated_at=EXCLUDED.updated_at,
@@ -99,7 +100,8 @@ export class PostgresStore {
         `, [
           restaurant.id, restaurant.name, restaurant.neighborhood, restaurant.address,
           restaurant.latitude, restaurant.longitude, restaurant.menuURL,
-          restaurant.checkURL ?? null, restaurant.extractionMode ?? "change_detection",
+          restaurant.checkURL ?? null, restaurant.claimURL ?? null,
+          restaurant.extractionMode ?? "change_detection",
           restaurant.verifiedAt, restaurant.coverageStatus, restaurant.coverageScope,
           restaurant.auditedAt
         ]);
@@ -248,20 +250,22 @@ export class PostgresStore {
     await this.pool.query(`
       INSERT INTO restaurants (
         id, name, neighborhood, address, latitude, longitude, menu_url, check_url,
-        extraction_mode, verified_at, coverage_status, coverage_scope, audited_at,
-        review_required, updated_at, menu_profile, verification_method
-      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'Needs review',$11,NULL,TRUE,$10,$12,$13)
+        claim_url, extraction_mode, verified_at, coverage_status, coverage_scope,
+        audited_at, review_required, updated_at, menu_profile, verification_method
+      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,'Needs review',$12,NULL,TRUE,$11,$13,$14)
       ON CONFLICT(id) DO UPDATE SET
         name=EXCLUDED.name, neighborhood=EXCLUDED.neighborhood, address=EXCLUDED.address,
         latitude=EXCLUDED.latitude, longitude=EXCLUDED.longitude,
         menu_url=EXCLUDED.menu_url, check_url=EXCLUDED.check_url,
+        claim_url=EXCLUDED.claim_url,
         extraction_mode=EXCLUDED.extraction_mode, coverage_scope=EXCLUDED.coverage_scope,
         updated_at=EXCLUDED.updated_at, menu_profile=EXCLUDED.menu_profile,
         verification_method=EXCLUDED.verification_method
     `, [
       record.id, record.name, record.neighborhood, record.address, record.latitude,
-      record.longitude, record.menuURL, record.checkURL, record.extractionMode,
-      now, record.coverageScope, record.menuProfile, record.verificationMethod
+      record.longitude, record.menuURL, record.checkURL, record.claimURL,
+      record.extractionMode, now, record.coverageScope, record.menuProfile,
+      record.verificationMethod
     ]);
     return { created: rowCount === 0 };
   }
@@ -355,7 +359,7 @@ export class PostgresStore {
 
   async getCheckTarget(id) {
     const { rows } = await this.pool.query(`
-      SELECT id, name, COALESCE(check_url, menu_url) AS check_url, source_hash,
+      SELECT id, name, COALESCE(check_url, menu_url) AS check_url, claim_url, source_hash,
              extraction_mode, menu_profile, verification_method, audited_at
       FROM restaurants WHERE id=$1
     `, [id]);
@@ -364,7 +368,7 @@ export class PostgresStore {
 
   async listCheckTargets() {
     const { rows } = await this.pool.query(`
-      SELECT id, name, COALESCE(check_url, menu_url) AS check_url, source_hash,
+      SELECT id, name, COALESCE(check_url, menu_url) AS check_url, claim_url, source_hash,
              extraction_mode, menu_profile, verification_method, audited_at
       FROM restaurants ORDER BY name
     `);

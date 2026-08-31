@@ -8,7 +8,8 @@
     "seed": "node --env-file-if-exists=.env src/seed.js",
     "check": "node --env-file-if-exists=.env src/check-menus.js",
     "test": "node --test",
-    "propose": "node --env-file-if-exists=.env src/propose-menus.js"
+    "propose": "node --env-file-if-exists=.env src/propose-menus.js",
+    "load-drafts": "node --env-file-if-exists=.env src/load-drafts.js"
   },
   "engines": {
     "node": ">=22.5"

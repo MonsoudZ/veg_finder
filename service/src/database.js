@@ -26,6 +26,7 @@ function migrate(database) {
       longitude REAL NOT NULL,
       menu_url TEXT,
       check_url TEXT,
+      claim_url TEXT,
       extraction_mode TEXT NOT NULL DEFAULT 'change_detection',
       verified_at TEXT NOT NULL,
       coverage_status TEXT NOT NULL DEFAULT 'Needs review',
@@ -134,6 +135,9 @@ function migrate(database) {
     database.exec("DROP TABLE restaurants_legacy");
     database.exec("PRAGMA foreign_keys = ON");
     return;
+  }
+  if (!columns.has("claim_url")) {
+    database.exec("ALTER TABLE restaurants ADD COLUMN claim_url TEXT");
   }
   if (!columns.has("menu_profile")) {
     database.exec("ALTER TABLE restaurants ADD COLUMN menu_profile TEXT NOT NULL DEFAULT 'unknown'");
@@ -258,9 +262,9 @@ export function importSeed(database, seedPath = defaultSeedPath) {
     const upsertRestaurant = database.prepare(`
       INSERT INTO restaurants (
         id, name, neighborhood, address, latitude, longitude, menu_url, check_url,
-        extraction_mode, verified_at, coverage_status, coverage_scope, audited_at,
-        review_required, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?)
+        claim_url, extraction_mode, verified_at, coverage_status, coverage_scope,
+        audited_at, review_required, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?)
       ON CONFLICT(id) DO UPDATE SET
         name = excluded.name,
         neighborhood = excluded.neighborhood,
@@ -269,6 +273,7 @@ export function importSeed(database, seedPath = defaultSeedPath) {
         longitude = excluded.longitude,
         menu_url = excluded.menu_url,
         check_url = excluded.check_url,
+        claim_url = excluded.claim_url,
         extraction_mode = excluded.extraction_mode,
         verified_at = excluded.verified_at,
         coverage_scope = excluded.coverage_scope,
@@ -306,6 +311,7 @@ export function importSeed(database, seedPath = defaultSeedPath) {
         restaurant.longitude,
         restaurant.menuURL,
         restaurant.checkURL ?? null,
+        restaurant.claimURL ?? null,
         restaurant.extractionMode ?? "change_detection",
         canonicalTimestamp(restaurant.verifiedAt),
         restaurant.coverageStatus,
@@ -526,9 +532,9 @@ export class SQLiteStore {
       this.database.prepare(`
         INSERT INTO restaurants (
           id, name, neighborhood, address, latitude, longitude, menu_url, check_url,
-          extraction_mode, verified_at, coverage_status, coverage_scope, audited_at,
-          review_required, updated_at, menu_profile, verification_method
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'Needs review', ?, NULL, 1, ?, ?, ?)
+          claim_url, extraction_mode, verified_at, coverage_status, coverage_scope,
+          audited_at, review_required, updated_at, menu_profile, verification_method
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'Needs review', ?, NULL, 1, ?, ?, ?)
         ON CONFLICT(id) DO UPDATE SET
           name = excluded.name,
           neighborhood = excluded.neighborhood,
@@ -537,6 +543,7 @@ export class SQLiteStore {
           longitude = excluded.longitude,
           menu_url = excluded.menu_url,
           check_url = excluded.check_url,
+          claim_url = excluded.claim_url,
           extraction_mode = excluded.extraction_mode,
           coverage_scope = excluded.coverage_scope,
           updated_at = excluded.updated_at,
@@ -545,7 +552,8 @@ export class SQLiteStore {
       `).run(
         record.id, record.name, record.neighborhood, record.address,
         record.latitude, record.longitude, record.menuURL, record.checkURL,
-        record.extractionMode, now, record.coverageScope, now, record.menuProfile,
+        record.claimURL, record.extractionMode, now, record.coverageScope, now,
+        record.menuProfile,
         record.verificationMethod
       );
       this.database.exec("COMMIT");
@@ -633,7 +641,7 @@ export class SQLiteStore {
 
   async getCheckTarget(id) {
     return this.database.prepare(`
-      SELECT id, name, COALESCE(check_url, menu_url) AS check_url, source_hash,
+      SELECT id, name, COALESCE(check_url, menu_url) AS check_url, claim_url, source_hash,
              extraction_mode, menu_profile, verification_method, audited_at
       FROM restaurants WHERE id = ?
     `).get(id) ?? null;
@@ -641,7 +649,7 @@ export class SQLiteStore {
 
   async listCheckTargets() {
     return this.database.prepare(`
-      SELECT id, name, COALESCE(check_url, menu_url) AS check_url, source_hash,
+      SELECT id, name, COALESCE(check_url, menu_url) AS check_url, claim_url, source_hash,
              extraction_mode, menu_profile, verification_method, audited_at
       FROM restaurants ORDER BY name COLLATE NOCASE
     `).all();

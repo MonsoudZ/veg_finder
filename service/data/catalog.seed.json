@@ -113,7 +113,7 @@
     },
     {
       "id":"00000000-0000-4000-8000-000000000007","name":"The Cake Bar","neighborhood":"Capitol Hill","address":"214 E 13th Ave, Denver, CO 80203","latitude":39.73668,"longitude":-104.98435,
-      "verifiedAt":"2026-08-30T00:00:00Z","auditedAt":"2026-08-30T00:00:00Z","coverageStatus":"Complete","coverageScope":"Every named baked good, ice-cream item, and macaron on the official walk-in menu; custom cakes and beverages excluded.","menuURL":"https://thecakebardenver.com/menu/","extractionMode":"change_detection",
+      "verifiedAt":"2026-08-30T00:00:00Z","auditedAt":"2026-08-30T00:00:00Z","coverageStatus":"Complete","coverageScope":"Every named baked good, ice-cream item, and macaron on the official walk-in menu; custom cakes and beverages excluded.","menuURL":"https://thecakebardenver.com/menu/","claimURL":"https://www.thecakebardenver.com/","extractionMode":"change_detection",
       "menuItems":[
         {"id":"10000007-0000-4000-8000-000000000001","name":"Jumbo Cupcake","description":"Plant-based cupcake.","price":"$6","dietaryStatus":"Vegan","sourceEvidence":"Plant-based bakery menu"},
         {"id":"10000007-0000-4000-8000-000000000002","name":"Gluten-Free Jumbo Cupcake","description":"Plant-based gluten-free cupcake.","price":"$6.50","dietaryStatus":"Vegan","sourceEvidence":"Plant-based bakery menu"},

@@ -225,6 +225,6 @@ function comparable(text) {
     .toLowerCase();
 }
 
-function readableMenu(sourceText) {
+export function readableMenu(sourceText) {
   return textBlocks(sourceText).join("\n").slice(0, 200_000);
 }

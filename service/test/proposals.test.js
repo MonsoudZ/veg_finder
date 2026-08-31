@@ -168,3 +168,77 @@ test("a source that cannot be fetched fails loudly rather than publishing", asyn
   assert.equal((await store.getRestaurant(id)).menuItems.length, 0);
   await store.close();
 });
+
+test("a whole-menu claim on a linked page drafts every dish but publishes none", async () => {
+  // The Cake Bar: 32 cakes on a menu page that never says vegan, and the claim
+  // that covers all of them on the home page. Worth drafting from; not worth
+  // publishing unseen, because a linked page may be describing a sister
+  // restaurant rather than this one.
+  const { store, id } = await storeWithRestaurant("linked-claim", {
+    claimURL: "https://example.com/about"
+  });
+  const target = await store.getCheckTarget(id);
+
+  const result = await proposeMenu(store, target, {
+    fetchImpl: async (url) => new Response(
+      String(url).endsWith("/about")
+        ? "<html><body><h1>Denver's Favorite Vegan Bakery</h1></body></html>"
+        : UNMARKED_PAGE
+    ),
+    tiers: autoPublishTiers()
+  });
+
+  assert.equal(result.tier, TIERS.FULLY_VEGAN);
+  assert.equal(result.items.length, 2);
+  assert.equal(result.published, false, "a linked claim must not publish unseen");
+  assert.ok(result.reasons.some((reason) => /Vegan Bakery/.test(reason)), "the claim is quoted");
+  assert.ok(result.reasons.some((reason) => /one reviewer confirms it/.test(reason)));
+
+  // One confirmation covers the whole menu, so all of it reaches the queue.
+  const pending = await store.listProposals({ restaurantID: id, status: "pending" });
+  assert.equal(pending.length, 2);
+  await store.close();
+});
+
+test("a claim page that stops resolving is reported, not silently ignored", async () => {
+  const { store, id } = await storeWithRestaurant("claim-gone", {
+    claimURL: "https://example.com/about"
+  });
+  const target = await store.getCheckTarget(id);
+
+  const result = await proposeMenu(store, target, {
+    fetchImpl: async (url) => String(url).endsWith("/about")
+      ? new Response("nope", { status: 404 })
+      : new Response(UNMARKED_PAGE),
+    tiers: autoPublishTiers()
+  });
+
+  // Losing the claim costs coverage, never correctness: the restaurant falls
+  // back to what its own menu says, which here is nothing.
+  assert.equal(result.tier, TIERS.MANUAL);
+  assert.equal(result.published, false);
+  assert.ok(
+    result.reasons.some((reason) => /returned HTTP 404/.test(reason)),
+    `a dead claim page must not look like a restaurant that never made a claim: ${result.reasons}`
+  );
+  await store.close();
+});
+
+test("a PDF menu says it cannot be read rather than blaming a missing legend", async () => {
+  const { store, id } = await storeWithRestaurant("pdf-menu");
+  const target = await store.getCheckTarget(id);
+
+  const result = await proposeMenu(store, target, {
+    fetchImpl: async () => new Response("%PDF-1.4 stream binary residue"),
+    tiers: autoPublishTiers()
+  });
+
+  assert.equal(result.tier, TIERS.MANUAL);
+  assert.equal(result.items.length, 0);
+  assert.match(result.reasons[0], /PDF or other binary document/);
+  assert.ok(
+    !result.reasons.some((reason) => /legend/.test(reason)),
+    "a PDF's problem is not that it published no legend"
+  );
+  await store.close();
+});

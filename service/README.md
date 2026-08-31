@@ -70,8 +70,10 @@ Both endpoints require `Authorization: Bearer $INTERNAL_API_TOKEN` and return 40
 without it, so an unauthenticated caller cannot tell they exist.
 
 `POST /internal/restaurants` creates or updates a restaurant. `menuProfile` is the
-operator's assertion about the whole menu — `unknown` (default), `fully_vegan`, or
-`manual`; see tiered extraction above. A new one is
+operator's assertion about the whole menu — `unknown` (default), `fully_vegan`,
+`fully_vegetarian`, or `manual`; see tiered extraction above. `claimURL` is
+optional and names a page where the restaurant declares its whole menu vegan or
+vegetarian, for the common case where that declaration is not on the menu page. A new one is
 deliberately unaudited: it is stored with coverage `Needs review`, no published
 items, and a place in the review queue. It cannot appear in the app until its menu
 has been reconciled.
@@ -113,8 +115,8 @@ claim the restaurant already makes. Two things count as such a claim:
 
 | Tier | The restaurant's claim | Publishes without review |
 | --- | --- | --- |
-| `fully_vegan` | The whole menu is vegan | Yes, by default |
-| `fully_vegetarian` | The whole menu is meat-free | Yes, by default |
+| `fully_vegan` | The whole menu is vegan | Yes, by default — unless the claim came from a `claimURL` |
+| `fully_vegetarian` | The whole menu is meat-free | Yes, by default — unless the claim came from a `claimURL` |
 | `labelled_menu` | The menu marks a dish, *and* publishes a legend defining that mark | Only if enabled |
 | `llm_assisted` | Neither — a model drafts, a person confirms | **Never** |
 | `manual` | Neither, and no model configured | Never |
@@ -126,9 +128,72 @@ some menus and vegetarian on others; a menu that defines one symbol two ways
 defines nothing usable. Every proposed item carries the exact source line as its
 evidence, so a reviewer can check it without refetching.
 
+A whole-menu claim is only read when it is unconditional. City, O' City's menu
+says `EVERYTHING is vegan unless you choose dairy mozzarella or egg` — a true
+statement with a carve-out, and the carve-out is the whole point: six of its
+pizzas are vegan only if the diner picks the right cheese. Broadening the claim
+patterns to match "everything is vegan" would swallow the `unless` and publish
+those six as `Vegan`. They are `Can be made vegan`, each with the instruction
+attached, and that distinction is a human's to make.
+
 Extraction never proposes a `Can be made ...` status. Those dishes need a specific
 instruction to the diner, and inventing that instruction is exactly the inference
 this pipeline refuses to make, so they stay human work.
+
+### Claims that are not on the menu page
+
+A restaurant whose whole menu is vegan usually says so on its home or about page
+and lets the menu just list food. The Cake Bar is the pilot's example: 32 baked
+goods, not one use of the word "vegan" on the menu page, and `Denver's Favorite
+Vegan Bakery` on the home page. Reading only the menu missed the single
+highest-confidence claim on the site and left the whole restaurant as hand work.
+
+`claimURL` on a restaurant names the page carrying that claim. It is read for a
+whole-menu claim and nothing else — never for dishes, prices, or per-dish
+labelling.
+
+```json
+{ "menuURL": "https://thecakebardenver.com/menu/",
+  "claimURL": "https://www.thecakebardenver.com/" }
+```
+
+A claim found this way **does not publish without review**, unlike one printed
+on the menu itself. The reason is specific: a claim on the menu is self-evidently
+about that menu, while a claim on another page is about *some* business and not
+always this one. City, O' City's about page calls Watercourse Foods "a fully
+plant-based scratch kitchen" — true, and about a different, sister restaurant.
+Read as City, O' City's own claim it would publish `Vegan` across a menu that
+serves dairy. So a linked claim drafts every dish and waits for one confirmation,
+which covers the entire menu at one click rather than one per dish.
+
+The matched sentence is quoted verbatim in the proposal's reasons, so whoever
+confirms it is looking at the restaurant's own words. If the claim page stops
+resolving, the restaurant falls back to whatever its menu says alone — less
+coverage, never a wrong claim — and the failure is reported rather than being
+indistinguishable from a restaurant that never made a claim.
+
+### Sources that cannot be read as text
+
+A PDF or image menu still gets change detection: its fingerprint is taken over
+the whole file, so an edit is noticed. It cannot be extracted, because there is
+no text to read, and the proposal says exactly that instead of reporting a
+missing dietary legend. Hudson Hill is the pilot's example. Those menus are
+recorded by a person; see **Restaurants with no menu online** above.
+
+### Hand-drafted menus
+
+`npm run load-drafts` loads hand-written drafts from `data/drafts/*.json` through
+the same gate a model's draft goes through: every entry carries a quote, each
+restaurant's live page is re-fetched, and any entry whose quote is not on the
+page is discarded rather than trusted. It exists because a menu with no legend
+and no whole-menu claim is out of reach of every automatic tier, and on the
+Capitol Hill pilot that is a third of the restaurants. Nothing it loads
+publishes; it fills the review queue.
+
+```sh
+npm run load-drafts                          # the default drafts file
+npm run load-drafts -- data/drafts/other.json
+```
 
 ### Model-assisted drafting
 

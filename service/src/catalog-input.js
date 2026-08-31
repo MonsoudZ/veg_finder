@@ -41,6 +41,12 @@ export function validateRestaurant(input) {
   value.checkURL = input?.checkURL == null
     ? null
     : requireHTTPURL(input.checkURL, "checkURL", errors);
+  // Where a restaurant declares that its whole menu is vegan or vegetarian, when
+  // that is somewhere other than the menu itself — typically a home or about
+  // page. Optional, and read for nothing but that claim.
+  value.claimURL = input?.claimURL == null
+    ? null
+    : requireHTTPURL(input.claimURL, "claimURL", errors);
   value.extractionMode = optionalEnum(
     input?.extractionMode, "extractionMode", EXTRACTION_MODES, "change_detection", errors
   );
