@@ -17,9 +17,18 @@ export const TIERS = { FULLY_VEGAN: "fully_vegan", LABELLED_MENU: "labelled_menu
 
 // Deliberately narrow. A missed dish costs coverage; a wrong one costs the trust
 // of somebody who cannot eat it.
-const PRICE = /\$\s?\d{1,3}(?:[.,]\d{2})?(?:\s*[–—-]\s*\$?\s?\d{1,3}(?:[.,]\d{2})?)?/;
-const MARKER = /[(\[{]\s*(vgn|vg|ve|v)\s*[)\]}]/i;
-const MARKER_GLOBAL = new RegExp(MARKER.source, "gi");
+// Plenty of menus print prices without a currency symbol, so a bare amount with
+// two decimal places counts too. Two decimals is what keeps this from matching
+// quantities, years, and serving sizes.
+const PRICE = /\$\s?\d{1,3}(?:[.,]\d{2})?(?:\s*[–—-]\s*\$?\s?\d{1,3}(?:[.,]\d{2})?)?|\b\d{1,3}\.\d{2}\b/;
+
+// A marker may share its bracket with other codes — "(V, GF)" is one dish that
+// is both vegetarian and gluten-free. The bracket must sit at the end of the
+// line and hold nothing but short codes, which is what separates a dietary
+// marker from an ingredient note like "(Pork, Chicken, or Tofu (V))" — there the
+// (V) qualifies one choice among several, and the dish itself is not vegetarian.
+const MARKER = /[(\[{]\s*([a-z]{1,3}(?:\s*[,/]\s*[a-z]{1,3})*)\s*[)\]}](?=\s*$|\s*\$?\s*\d)/i;
+const MARKER_GLOBAL = /[(\[{]\s*[a-z]{1,3}(?:\s*[,/]\s*[a-z]{1,3})*\s*[)\]}]/gi;
 
 // "VG = Vegan", "(V) — Vegetarian", "V: vegan".
 const LEGEND_ENTRY = /[(\[{]?\s*\b(vgn|vg|ve|v)\b\s*[)\]}]?\s*[=:–—-]\s*(vegan|vegetarian)\b/gi;
@@ -67,8 +76,13 @@ export function extractMenu(html, { menuProfile = "unknown" } = {}) {
     const items = collectItems(blocks, (block) => {
       const match = block.match(MARKER);
       if (!match) return null;
-      const meaning = legend[match[1].toLowerCase()];
-      if (!meaning) return null;
+      // Take the dietary code from the bracket and ignore the rest ("GF", "N").
+      const meanings = match[1].split(/[,/]/)
+        .map((code) => legend[code.trim().toLowerCase()])
+        .filter(Boolean);
+      // Two different dietary codes on one dish is a menu we do not understand.
+      if (new Set(meanings).size !== 1) return null;
+      const [meaning] = meanings;
       // A marker qualified by "on request" describes a dish that must be changed.
       // The change itself is never guessed here.
       if (CONDITIONAL.test(block)) return null;

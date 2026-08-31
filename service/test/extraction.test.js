@@ -184,3 +184,43 @@ test("a description following a marked dish does not become its own item", () =>
   assert.ok(result.items.every((item) => item.name !== "Chickpeas, rice, cilantro" || item.price === "$0"));
   assert.equal(result.items[0].name, "Chana Bowl");
 });
+
+test("a marker sharing its bracket with other codes is still read", () => {
+  // "(V, GF)" is one dish that is both vegetarian and gluten-free.
+  const result = extractMenu(page(`
+    <p>V = Vegan, GF = Gluten Free</p>
+    <li>Crispy Tofu (V, GF )</li><li>12.00</li>
+    <li>Spicy Edamame (V, GF )</li><li>9.50</li>
+  `));
+  assert.deepEqual(
+    result.items.map((item) => [item.name, item.dietaryStatus, item.price]),
+    [["Crispy Tofu", "Vegan", "12.00"], ["Spicy Edamame", "Vegan", "9.50"]]
+  );
+});
+
+test("a marker qualifying one choice among several is not a dish marker", () => {
+  // The (V) here applies to the tofu option; the dish itself can be pork.
+  const result = extractMenu(page(`
+    <p>V = Vegan</p>
+    <li>Lettuce Wrap (Pork, Chicken, or Tofu (V) )</li><li>16.00</li>
+  `));
+  assert.equal(result.items.length, 0, "an ingredient parenthetical must not mark the dish");
+});
+
+test("a dish carrying two conflicting dietary codes is left alone", () => {
+  const result = extractMenu(page(`
+    <p>V = Vegan, VE = Vegetarian</p>
+    <li>Mystery Plate (V, VE)</li><li>10.00</li>
+  `));
+  assert.equal(result.items.length, 0);
+});
+
+test("prices without a currency symbol are recognised, quantities are not", () => {
+  const result = extractMenu(page(`
+    <p>VG = Vegan</p>
+    <li>Half Sandwich (VG)</li><li>11.75</li>
+    <li>Serves 2 (VG)</li><li>2</li>
+    <li>Since 1998 (VG)</li><li>1998</li>
+  `));
+  assert.deepEqual(result.items.map((item) => item.name), ["Half Sandwich"]);
+});
