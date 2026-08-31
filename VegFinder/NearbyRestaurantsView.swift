@@ -59,10 +59,27 @@ struct NearbyRestaurantsView: View {
             }
             .task {
                 locationManager.requestLocation()
-                await catalog.load()
+                await catalog.load(
+                    latitude: origin.coordinate.latitude,
+                    longitude: origin.coordinate.longitude
+                )
             }
             .refreshable {
-                await catalog.refresh()
+                await catalog.refresh(
+                    latitude: origin.coordinate.latitude,
+                    longitude: origin.coordinate.longitude
+                )
+            }
+            .onChange(of: locationManager.location) { _, newLocation in
+                // The first fix usually arrives after the initial load, and the
+                // catalog is now scoped to a radius rather than the whole city.
+                guard let newLocation else { return }
+                Task {
+                    await catalog.refresh(
+                        latitude: newLocation.coordinate.latitude,
+                        longitude: newLocation.coordinate.longitude
+                    )
+                }
             }
         }
         .tint(.green)
@@ -151,7 +168,12 @@ struct NearbyRestaurantsView: View {
                 Text(message)
             } actions: {
                 Button("Try again") {
-                    Task { await catalog.refresh() }
+                    Task {
+                        await catalog.refresh(
+                            latitude: origin.coordinate.latitude,
+                            longitude: origin.coordinate.longitude
+                        )
+                    }
                 }
             }
         case .ready:

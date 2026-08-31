@@ -3,6 +3,7 @@ import { readFileSync, readdirSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import pg from "pg";
+import { boundingBox, decodeCursor, distanceKm, encodeCursor } from "./geo.js";
 import { defaultSeedPath } from "./paths.js";
 
 const { Pool } = pg;
@@ -65,14 +66,15 @@ export class PostgresStore {
           INSERT INTO restaurants (
             id, name, neighborhood, address, latitude, longitude, menu_url, check_url,
             extraction_mode, verified_at, coverage_status, coverage_scope, audited_at,
-            review_required
-          ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,FALSE)
+            review_required, updated_at
+          ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,FALSE,$13)
           ON CONFLICT(id) DO UPDATE SET
             name=EXCLUDED.name, neighborhood=EXCLUDED.neighborhood, address=EXCLUDED.address,
             latitude=EXCLUDED.latitude, longitude=EXCLUDED.longitude,
             menu_url=EXCLUDED.menu_url, check_url=EXCLUDED.check_url,
             extraction_mode=EXCLUDED.extraction_mode, verified_at=EXCLUDED.verified_at,
             coverage_scope=EXCLUDED.coverage_scope, audited_at=EXCLUDED.audited_at,
+            updated_at=EXCLUDED.updated_at,
             -- An advancing audited_at is the operator's record that this menu was
             -- actually reconciled against the official source, so it is the only
             -- thing that may clear a review the checker raised. A seed can always
@@ -102,62 +104,7 @@ export class PostgresStore {
           restaurant.auditedAt
         ]);
 
-        const { rows: existingRows } = await client.query(
-          "SELECT * FROM menu_items WHERE restaurant_id=$1 AND active=TRUE", [restaurant.id]
-        );
-        const existing = new Map(existingRows.map((item) => [item.id, item]));
-        const incomingIDs = restaurant.menuItems.map((item) => item.id);
-
-        for (const [index, item] of restaurant.menuItems.entries()) {
-          const previous = existing.get(item.id);
-          await client.query(`
-            INSERT INTO menu_items (
-              id, restaurant_id, name, description, price, dietary_status,
-              modification_note, source_evidence, sort_order, last_verified_at, active
-            ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,TRUE)
-            ON CONFLICT(id) DO UPDATE SET
-              restaurant_id=EXCLUDED.restaurant_id, name=EXCLUDED.name,
-              description=EXCLUDED.description, price=EXCLUDED.price,
-              dietary_status=EXCLUDED.dietary_status,
-              modification_note=EXCLUDED.modification_note,
-              source_evidence=EXCLUDED.source_evidence, sort_order=EXCLUDED.sort_order,
-              last_verified_at=EXCLUDED.last_verified_at, active=TRUE
-          `, [
-            item.id, restaurant.id, item.name, item.description, item.price,
-            item.dietaryStatus, item.modificationNote ?? null, item.sourceEvidence ?? "",
-            index, restaurant.auditedAt
-          ]);
-
-          const snapshot = canonicalItem(item);
-          if (!previous || JSON.stringify(canonicalDatabaseItem(previous)) !== JSON.stringify(snapshot)) {
-            await client.query(`
-              INSERT INTO menu_item_versions
-                (id, menu_item_id, restaurant_id, item_snapshot, recorded_at, change_kind)
-              VALUES ($1,$2,$3,$4::jsonb,$5,$6)
-            `, [
-              randomUUID(), item.id, restaurant.id, JSON.stringify(snapshot),
-              restaurant.auditedAt, previous ? "updated" : "published"
-            ]);
-          }
-          existing.delete(item.id);
-        }
-
-        // Runs even when incomingIDs is empty: a seed that drops every item for a
-        // restaurant must unpublish the old ones rather than keep serving them.
-        await client.query(`
-          UPDATE menu_items SET active=FALSE
-          WHERE restaurant_id=$1 AND active=TRUE AND NOT (id = ANY($2::uuid[]))
-        `, [restaurant.id, incomingIDs]);
-        for (const retired of existing.values()) {
-          await client.query(`
-            INSERT INTO menu_item_versions
-              (id, menu_item_id, restaurant_id, item_snapshot, recorded_at, change_kind)
-            VALUES ($1,$2,$3,$4::jsonb,$5,'retired')
-          `, [
-            randomUUID(), retired.id, restaurant.id,
-            JSON.stringify(canonicalDatabaseItem(retired)), restaurant.auditedAt
-          ]);
-        }
+        await publishMenu(client, restaurant.id, restaurant.menuItems, restaurant.auditedAt);
       }
       await client.query("COMMIT");
     } catch (error) {
@@ -205,6 +152,135 @@ export class PostgresStore {
         }))
       }))
     };
+  }
+
+  async getRestaurant(id) {
+    const page = await this.getCatalogPage({ ids: [id], limit: 1 });
+    return page.restaurants[0] ?? null;
+  }
+
+  async getCatalogPage({ latitude, longitude, radiusKm, since, cursor, limit = 100, ids } = {}) {
+    const conditions = [];
+    const parameters = [];
+    const placeholder = (value) => `$${parameters.push(value)}`;
+
+    if (ids) conditions.push(`id = ANY(${placeholder(ids)}::uuid[])`);
+    if (since) conditions.push(`COALESCE(updated_at, verified_at) > ${placeholder(since)}::timestamptz`);
+    if (latitude != null && longitude != null) {
+      const box = boundingBox(latitude, longitude, radiusKm);
+      conditions.push(
+        `latitude BETWEEN ${placeholder(box.minLatitude)} AND ${placeholder(box.maxLatitude)}`,
+        `longitude BETWEEN ${placeholder(box.minLongitude)} AND ${placeholder(box.maxLongitude)}`
+      );
+    }
+
+    const resume = decodeCursor(cursor);
+    if (resume?.updatedAt) {
+      conditions.push(
+        `(COALESCE(updated_at, verified_at), id) > (${placeholder(resume.updatedAt)}::timestamptz, ${placeholder(resume.id)}::uuid)`
+      );
+    } else if (resume?.name) {
+      conditions.push(`(name, id) > (${placeholder(resume.name)}, ${placeholder(resume.id)}::uuid)`);
+    }
+
+    const where = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
+    const order = since ? "COALESCE(updated_at, verified_at), id" : "name, id";
+    const limitClause = latitude == null ? `LIMIT ${placeholder(limit + 1)}` : "";
+    const { rows } = await this.pool.query(`
+      SELECT id, name, neighborhood, address, latitude, longitude, menu_url,
+             verified_at, coverage_status, coverage_scope, audited_at,
+             last_checked_at, COALESCE(updated_at, verified_at) AS updated_at
+      FROM restaurants ${where} ORDER BY ${order} ${limitClause}
+    `, parameters);
+
+    let selected = rows;
+    let nextCursor = null;
+    if (latitude != null && longitude != null) {
+      selected = rows
+        .map((row) => ({ row, km: distanceKm(latitude, longitude, row.latitude, row.longitude) }))
+        .filter((entry) => entry.km <= radiusKm)
+        .sort((a, b) => a.km - b.km)
+        .slice(0, limit)
+        .map((entry) => entry.row);
+    } else if (rows.length > limit) {
+      selected = rows.slice(0, limit);
+      const last = selected[selected.length - 1];
+      nextCursor = encodeCursor(
+        since ? { updatedAt: iso(last.updated_at), id: last.id } : { name: last.name, id: last.id }
+      );
+    }
+
+    const { rows: items } = selected.length === 0 ? { rows: [] } : await this.pool.query(`
+      SELECT id, restaurant_id, name, description, price, dietary_status,
+             modification_note FROM menu_items
+      WHERE active=TRUE AND restaurant_id = ANY($1::uuid[])
+      ORDER BY restaurant_id, sort_order, name
+    `, [selected.map((row) => row.id)]);
+    const itemsByRestaurant = Map.groupBy(items, (item) => item.restaurant_id);
+
+    return {
+      generatedAt: new Date().toISOString(),
+      syncedAt: selected.length
+        ? iso(selected[selected.length - 1].updated_at)
+        : (since ?? null),
+      restaurants: selected.map((row) => publicRestaurant(row, itemsByRestaurant.get(row.id) ?? [])),
+      nextCursor
+    };
+  }
+
+  async upsertRestaurant(record) {
+    const now = new Date().toISOString();
+    const { rowCount } = await this.pool.query(
+      "SELECT 1 FROM restaurants WHERE id=$1", [record.id]
+    );
+    await this.pool.query(`
+      INSERT INTO restaurants (
+        id, name, neighborhood, address, latitude, longitude, menu_url, check_url,
+        extraction_mode, verified_at, coverage_status, coverage_scope, audited_at,
+        review_required, updated_at
+      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'Needs review',$11,NULL,TRUE,$10)
+      ON CONFLICT(id) DO UPDATE SET
+        name=EXCLUDED.name, neighborhood=EXCLUDED.neighborhood, address=EXCLUDED.address,
+        latitude=EXCLUDED.latitude, longitude=EXCLUDED.longitude,
+        menu_url=EXCLUDED.menu_url, check_url=EXCLUDED.check_url,
+        extraction_mode=EXCLUDED.extraction_mode, coverage_scope=EXCLUDED.coverage_scope,
+        updated_at=EXCLUDED.updated_at
+    `, [
+      record.id, record.name, record.neighborhood, record.address, record.latitude,
+      record.longitude, record.menuURL, record.checkURL, record.extractionMode,
+      now, record.coverageScope
+    ]);
+    return { created: rowCount === 0 };
+  }
+
+  async reconcileRestaurant(id, { coverageStatus, coverageScope, menuItems }) {
+    const now = new Date().toISOString();
+    const client = await this.pool.connect();
+    try {
+      await client.query("BEGIN");
+      const { rowCount } = await client.query("SELECT 1 FROM restaurants WHERE id=$1", [id]);
+      if (rowCount === 0) {
+        await client.query("ROLLBACK");
+        return null;
+      }
+      await publishMenu(client, id, menuItems, now);
+      await client.query(`
+        UPDATE restaurants SET
+          coverage_status=$1,
+          coverage_scope=COALESCE($2, coverage_scope),
+          audited_at=$3, updated_at=$3,
+          review_required=($1 = 'Needs review'),
+          check_error=NULL
+        WHERE id=$4
+      `, [coverageStatus, coverageScope ?? null, now, id]);
+      await client.query("COMMIT");
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally {
+      client.release();
+    }
+    return this.getRestaurant(id);
   }
 
   async listCheckTargets() {
@@ -309,6 +385,96 @@ export async function openPostgresStore(connectionString) {
     await pool.end();
     throw error;
   }
+}
+
+// Mirrors publishMenu in database.js: retire everything, re-activate the incoming
+// items, record what changed. Runs inside the caller's transaction.
+async function publishMenu(client, restaurantID, items, recordedAt) {
+  const { rows: existingRows } = await client.query(
+    "SELECT * FROM menu_items WHERE restaurant_id=$1 AND active=TRUE", [restaurantID]
+  );
+  const existing = new Map(existingRows.map((item) => [item.id, item]));
+  const incomingIDs = items.map((item) => item.id);
+
+  for (const [index, item] of items.entries()) {
+    const previous = existing.get(item.id);
+    await client.query(`
+      INSERT INTO menu_items (
+        id, restaurant_id, name, description, price, dietary_status,
+        modification_note, source_evidence, sort_order, last_verified_at, active,
+        updated_at
+      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,TRUE,$10)
+      ON CONFLICT(id) DO UPDATE SET
+        restaurant_id=EXCLUDED.restaurant_id, name=EXCLUDED.name,
+        description=EXCLUDED.description, price=EXCLUDED.price,
+        dietary_status=EXCLUDED.dietary_status,
+        modification_note=EXCLUDED.modification_note,
+        source_evidence=EXCLUDED.source_evidence, sort_order=EXCLUDED.sort_order,
+        last_verified_at=EXCLUDED.last_verified_at, active=TRUE,
+        updated_at=EXCLUDED.updated_at
+    `, [
+      item.id, restaurantID, item.name, item.description, item.price,
+      item.dietaryStatus, item.modificationNote ?? null, item.sourceEvidence ?? "",
+      index, recordedAt
+    ]);
+
+    const snapshot = canonicalItem(item);
+    if (!previous || JSON.stringify(canonicalDatabaseItem(previous)) !== JSON.stringify(snapshot)) {
+      await client.query(`
+        INSERT INTO menu_item_versions
+          (id, menu_item_id, restaurant_id, item_snapshot, recorded_at, change_kind)
+        VALUES ($1,$2,$3,$4::jsonb,$5,$6)
+      `, [
+        randomUUID(), item.id, restaurantID, JSON.stringify(snapshot),
+        recordedAt, previous ? "updated" : "published"
+      ]);
+    }
+    existing.delete(item.id);
+  }
+
+  // Runs even when incomingIDs is empty: a menu that drops every item must
+  // unpublish the old ones rather than keep serving them.
+  await client.query(`
+    UPDATE menu_items SET active=FALSE, updated_at=$3
+    WHERE restaurant_id=$1 AND active=TRUE AND NOT (id = ANY($2::uuid[]))
+  `, [restaurantID, incomingIDs, recordedAt]);
+
+  for (const retired of existing.values()) {
+    await client.query(`
+      INSERT INTO menu_item_versions
+        (id, menu_item_id, restaurant_id, item_snapshot, recorded_at, change_kind)
+      VALUES ($1,$2,$3,$4::jsonb,$5,'retired')
+    `, [
+      randomUUID(), retired.id, restaurantID,
+      JSON.stringify(canonicalDatabaseItem(retired)), recordedAt
+    ]);
+  }
+}
+
+function publicRestaurant(row, items) {
+  return {
+    id: row.id,
+    name: row.name,
+    neighborhood: row.neighborhood,
+    address: row.address,
+    latitude: row.latitude,
+    longitude: row.longitude,
+    verifiedAt: iso(row.verified_at),
+    menuURL: row.menu_url,
+    coverageStatus: row.coverage_status,
+    coverageScope: row.coverage_scope,
+    auditedAt: iso(row.audited_at ?? row.verified_at),
+    lastCheckedAt: iso(row.last_checked_at),
+    updatedAt: iso(row.updated_at ?? row.verified_at),
+    menuItems: items.map((item) => ({
+      id: item.id,
+      name: item.name,
+      description: item.description,
+      price: item.price,
+      dietaryStatus: item.dietary_status,
+      modificationNote: item.modification_note
+    }))
+  };
 }
 
 function canonicalItem(item) {

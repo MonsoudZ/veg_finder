@@ -1,0 +1,134 @@
+// One definition of what a valid catalog record is, shared by the admin API and
+// the seed importer. Dietary data is the product, so bad input is rejected at the
+// boundary rather than stored and served.
+
+export const DIETARY_STATUSES = [
+  "Vegan", "Vegetarian", "Can be made vegan", "Can be made vegetarian"
+];
+export const COVERAGE_STATUSES = ["Complete", "Needs review"];
+export const EXTRACTION_MODES = ["change_detection", "browser_required"];
+
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+export function validateRestaurant(input) {
+  const errors = [];
+  const value = {};
+
+  value.id = requireUUID(input?.id, "id", errors);
+  value.name = requireText(input?.name, "name", errors, 200);
+  value.neighborhood = requireText(input?.neighborhood, "neighborhood", errors, 120);
+  value.address = requireText(input?.address, "address", errors, 300);
+  value.latitude = requireNumber(input?.latitude, "latitude", -90, 90, errors);
+  value.longitude = requireNumber(input?.longitude, "longitude", -180, 180, errors);
+  value.menuURL = requireHTTPURL(input?.menuURL, "menuURL", errors);
+  value.checkURL = input?.checkURL == null
+    ? null
+    : requireHTTPURL(input.checkURL, "checkURL", errors);
+  value.extractionMode = optionalEnum(
+    input?.extractionMode, "extractionMode", EXTRACTION_MODES, "change_detection", errors
+  );
+  value.coverageScope = typeof input?.coverageScope === "string" && input.coverageScope.trim()
+    ? input.coverageScope.trim()
+    : "Qualifying items found on the official menu";
+
+  return { valid: errors.length === 0, errors, value };
+}
+
+export function validateMenuItems(input) {
+  const errors = [];
+  if (!Array.isArray(input)) {
+    return { valid: false, errors: ["menuItems must be an array"], value: [] };
+  }
+
+  const seen = new Set();
+  const value = input.map((item, index) => {
+    const at = `menuItems[${index}]`;
+    const id = requireUUID(item?.id, `${at}.id`, errors);
+    if (id) {
+      if (seen.has(id)) errors.push(`${at}.id is duplicated within this menu`);
+      seen.add(id);
+    }
+    const dietaryStatus = requireEnum(item?.dietaryStatus, `${at}.dietaryStatus`, DIETARY_STATUSES, errors);
+
+    // A modified dish is only safe to publish alongside the change that makes it
+    // qualify, and an unmodified dish carrying a note misleads in the other
+    // direction. The app renders this note as an instruction to the diner.
+    const note = typeof item?.modificationNote === "string" ? item.modificationNote.trim() : null;
+    if (dietaryStatus?.startsWith("Can be made") && !note) {
+      errors.push(`${at}.modificationNote is required for "${dietaryStatus}"`);
+    }
+    if (dietaryStatus && !dietaryStatus.startsWith("Can be made") && note) {
+      errors.push(`${at}.modificationNote is only valid for a modified dish`);
+    }
+
+    return {
+      id,
+      name: requireText(item?.name, `${at}.name`, errors, 200),
+      description: typeof item?.description === "string" ? item.description.trim() : "",
+      price: requireText(item?.price, `${at}.price`, errors, 60),
+      dietaryStatus,
+      modificationNote: note || null,
+      // Every published claim must be traceable to something on the official menu.
+      sourceEvidence: requireText(item?.sourceEvidence, `${at}.sourceEvidence`, errors, 2_000)
+    };
+  });
+
+  return { valid: errors.length === 0, errors, value };
+}
+
+function requireUUID(value, field, errors) {
+  if (typeof value !== "string" || !UUID.test(value)) {
+    errors.push(`${field} must be a UUID`);
+    return null;
+  }
+  return value.toLowerCase();
+}
+
+function requireText(value, field, errors, maxLength) {
+  if (typeof value !== "string" || !value.trim()) {
+    errors.push(`${field} is required`);
+    return null;
+  }
+  const trimmed = value.trim();
+  if (trimmed.length > maxLength) {
+    errors.push(`${field} must be ${maxLength} characters or fewer`);
+    return null;
+  }
+  return trimmed;
+}
+
+function requireNumber(value, field, min, max, errors) {
+  if (typeof value !== "number" || !Number.isFinite(value) || value < min || value > max) {
+    errors.push(`${field} must be a number between ${min} and ${max}`);
+    return null;
+  }
+  return value;
+}
+
+function requireHTTPURL(value, field, errors) {
+  if (typeof value !== "string") {
+    errors.push(`${field} must be an http(s) URL`);
+    return null;
+  }
+  try {
+    const url = new URL(value);
+    if (url.protocol !== "http:" && url.protocol !== "https:") throw new Error("bad protocol");
+    return url.toString();
+  } catch {
+    errors.push(`${field} must be an http(s) URL`);
+    return null;
+  }
+}
+
+function requireEnum(value, field, allowed, errors) {
+  if (!allowed.includes(value)) {
+    errors.push(`${field} must be one of: ${allowed.join(", ")}`);
+    return null;
+  }
+  return value;
+}
+
+function optionalEnum(value, field, allowed, fallback, errors) {
+  if (value == null) return fallback;
+  return requireEnum(value, field, allowed, errors) ?? fallback;
+}

@@ -4,6 +4,22 @@ import Foundation
 struct CatalogResponse: Codable {
     let generatedAt: Date
     let restaurants: [Restaurant]
+    /// Watermark for incremental sync. Present from the paged catalog API; absent
+    /// in older cached payloads, so it stays optional.
+    let syncedAt: Date?
+    let nextCursor: String?
+
+    private enum CodingKeys: String, CodingKey {
+        case generatedAt, restaurants, syncedAt, nextCursor
+    }
+
+    init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        generatedAt = try values.decode(Date.self, forKey: .generatedAt)
+        restaurants = try values.decode([Restaurant].self, forKey: .restaurants)
+        syncedAt = try values.decodeIfPresent(Date.self, forKey: .syncedAt)
+        nextCursor = try values.decodeIfPresent(String.self, forKey: .nextCursor)
+    }
 }
 
 enum CatalogPhase: Equatable {
@@ -54,15 +70,20 @@ final class RestaurantCatalog: ObservableObject {
         self.cacheURL = cacheURL ?? Self.defaultCacheURL
     }
 
-    func load() async {
+    /// Radius covering the Denver metro. The catalog no longer returns every
+    /// restaurant it holds, so the app asks for the ones near the diner.
+    static let defaultRadiusKm = 25.0
+    static let defaultLimit = 100
+
+    func load(latitude: Double, longitude: Double) async {
         if restaurants.isEmpty {
             loadCache()
         }
-        await refresh()
+        await refresh(latitude: latitude, longitude: longitude)
     }
 
-    func refresh() async {
-        guard let endpoint else {
+    func refresh(latitude: Double, longitude: Double) async {
+        guard let endpoint = Self.nearbyURL(base: endpoint, latitude: latitude, longitude: longitude) else {
             refreshFailure = CatalogError.missingEndpoint.localizedDescription
             if restaurants.isEmpty {
                 phase = .failed(CatalogError.missingEndpoint.localizedDescription)
@@ -123,6 +144,19 @@ final class RestaurantCatalog: ObservableObject {
             return nil
         }
         return URL(string: value)
+    }
+
+    private static func nearbyURL(base: URL?, latitude: Double, longitude: Double) -> URL? {
+        guard let base, var components = URLComponents(url: base, resolvingAgainstBaseURL: false) else {
+            return nil
+        }
+        components.queryItems = [
+            URLQueryItem(name: "lat", value: String(latitude)),
+            URLQueryItem(name: "lon", value: String(longitude)),
+            URLQueryItem(name: "radiusKm", value: String(defaultRadiusKm)),
+            URLQueryItem(name: "limit", value: String(defaultLimit))
+        ]
+        return components.url
     }
 
     private static var defaultCacheURL: URL {

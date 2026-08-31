@@ -4,7 +4,8 @@ This service is the source of restaurant and menu data for the iPhone app.
 
 ## Data contract
 
-`GET /v1/catalog` returns every published restaurant and all of its qualifying menu items. Dietary status is one of:
+`GET /v1/catalog` returns published restaurants and their qualifying menu items in
+pages. Dietary status is one of:
 
 - `Vegan`
 - `Vegetarian`
@@ -12,6 +13,64 @@ This service is the source of restaurant and menu data for the iPhone app.
 - `Can be made vegetarian`
 
 Modified items must include `modificationNote`. Each database item also stores source evidence, although evidence is not exposed in the public response yet.
+
+### Query modes
+
+Every response is `{ generatedAt, syncedAt, restaurants, nextCursor }`.
+
+| Mode | Parameters | Behaviour |
+| --- | --- | --- |
+| Nearby | `lat`, `lon`, `radiusKm` (default 25), `limit` | Restaurants inside the radius, nearest first. What the iPhone app uses. |
+| Delta | `since` (ISO-8601), `limit`, `cursor` | Whole restaurant records changed since that watermark. |
+| Paged | `limit` (default 100, max 500), `cursor` | Every restaurant by name. |
+
+The restaurant is the unit of synchronisation: any change to it or to its menu
+items advances its `updatedAt`. A client stores the `syncedAt` it was given and
+passes it back as `since` to fetch only what changed. Follow `nextCursor` until it
+is null; cursors are opaque and an unreadable one restarts from the beginning.
+
+Nearby queries prefilter with a bounding box in SQL and then rank by true
+distance, so `radiusKm` is exact rather than a box approximation.
+
+## Editing the catalog
+
+The database is the source of truth. `data/catalog.seed.json` only bootstraps an
+empty database and backs the tests; it is not where ongoing edits belong.
+
+Both endpoints require `Authorization: Bearer $INTERNAL_API_TOKEN` and return 404
+without it, so an unauthenticated caller cannot tell they exist.
+
+`POST /internal/restaurants` creates or updates a restaurant. A new one is
+deliberately unaudited: it is stored with coverage `Needs review`, no published
+items, and a place in the review queue. It cannot appear in the app until its menu
+has been reconciled.
+
+```sh
+curl -X POST "$BASE/internal/restaurants" \
+  -H "Authorization: Bearer $INTERNAL_API_TOKEN" -H 'content-type: application/json' \
+  -d '{"id":"<uuid>","name":"Example","neighborhood":"Capitol Hill",
+       "address":"100 E Colfax Ave","latitude":39.7402,"longitude":-104.9847,
+       "menuURL":"https://example.com/menu"}'
+```
+
+`POST /internal/restaurants/:id/reconcile` publishes an audited menu. This is the
+one operation that advances `auditedAt`, so reconciling is what clears a review
+the checker raised, restores coverage, and clears any recorded check error.
+Publishing an empty menu unpublishes everything for that restaurant.
+
+```sh
+curl -X POST "$BASE/internal/restaurants/<uuid>/reconcile" \
+  -H "Authorization: Bearer $INTERNAL_API_TOKEN" -H 'content-type: application/json' \
+  -d '{"coverageStatus":"Complete","coverageScope":"All qualifying dishes",
+       "menuItems":[{"id":"<uuid>","name":"Chana Bowl","description":"Chickpeas",
+                     "price":"$12","dietaryStatus":"Vegan",
+                     "sourceEvidence":"Menu marks this VG"}]}'
+```
+
+Input is validated before anything is stored: ids must be UUIDs, a
+`Can be made ...` item must carry a `modificationNote`, an unmodified item must
+not, and every item needs `sourceEvidence`. Invalid input returns 422 listing each
+problem.
 
 Production uses PostgreSQL whenever `DATABASE_URL` is set. With no `DATABASE_URL`, the service uses SQLite for local development and tests. PostgreSQL retains item versions, source snapshots, and every check run; SQLite implements the same contract for zero-setup development.
 
@@ -43,7 +102,9 @@ npm run seed
 npm start
 ```
 
-This creates `data/vegfinder.sqlite`. Run `npm test` for the SQLite suite.
+This creates `data/vegfinder.sqlite` and imports the seed because the database is
+empty. Run `npm test` for the SQLite suite; set `TEST_DATABASE_URL` to also run the
+PostgreSQL suite.
 
 ## PostgreSQL production
 

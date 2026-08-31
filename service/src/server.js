@@ -1,4 +1,6 @@
 import { createServer } from "node:http";
+import { timingSafeEqual } from "node:crypto";
+import { validateMenuItems, validateRestaurant, COVERAGE_STATUSES } from "./catalog-input.js";
 import { checkMenus } from "./checker.js";
 import { announceCheckResults, createNotifier } from "./notifier.js";
 import { openStore } from "./store.js";
@@ -25,6 +27,9 @@ const server = createServer(async (request, response) => {
   }
 });
 
+const MAX_BODY_BYTES = 1_000_000;
+const RECONCILE_PATH = /^\/internal\/restaurants\/([0-9a-f-]{36})\/reconcile$/i;
+
 async function handleRequest(request, response) {
   const url = new URL(request.url, `http://${request.headers.host ?? `${host}:${port}`}`);
 
@@ -34,25 +39,128 @@ async function handleRequest(request, response) {
   }
 
   if (request.method === "GET" && url.pathname === "/v1/catalog") {
-    const catalog = await store.getCatalog();
-    const neighborhood = url.searchParams.get("neighborhood");
-    if (neighborhood) {
-      catalog.restaurants = catalog.restaurants.filter(
-        (restaurant) => restaurant.neighborhood.toLowerCase() === neighborhood.toLowerCase()
-      );
+    const query = readCatalogQuery(url.searchParams);
+    if (query.errors.length > 0) {
+      return json(response, 400, { error: "Invalid query", details: query.errors }, false);
     }
-    return json(response, 200, catalog);
+    return json(response, 200, await store.getCatalogPage(query.value));
   }
 
-  if (request.method === "GET" && url.pathname === "/internal/review-queue") {
+  if (url.pathname.startsWith("/internal/")) {
+    // An unauthenticated caller should not be able to tell these endpoints exist.
     if (!isInternalRequestAuthorized(request)) {
       return json(response, 404, { error: "Not found" }, false);
     }
-    const rows = await store.getReviewQueue();
-    return json(response, 200, { restaurants: rows }, false);
+
+    if (request.method === "GET" && url.pathname === "/internal/review-queue") {
+      return json(response, 200, { restaurants: await store.getReviewQueue() }, false);
+    }
+
+    if (request.method === "POST" && url.pathname === "/internal/restaurants") {
+      const body = await readJSONBody(request);
+      if (body.error) return json(response, body.status, { error: body.error }, false);
+
+      const restaurant = validateRestaurant(body.value);
+      if (!restaurant.valid) {
+        return json(response, 422, { error: "Invalid restaurant", details: restaurant.errors }, false);
+      }
+      const { created } = await store.upsertRestaurant(restaurant.value);
+      return json(response, created ? 201 : 200, {
+        restaurant: await store.getRestaurant(restaurant.value.id),
+        created
+      }, false);
+    }
+
+    const reconcile = request.method === "POST" && url.pathname.match(RECONCILE_PATH);
+    if (reconcile) {
+      const body = await readJSONBody(request);
+      if (body.error) return json(response, body.status, { error: body.error }, false);
+
+      const coverageStatus = body.value?.coverageStatus;
+      if (!COVERAGE_STATUSES.includes(coverageStatus)) {
+        return json(response, 422, {
+          error: "Invalid reconciliation",
+          details: [`coverageStatus must be one of: ${COVERAGE_STATUSES.join(", ")}`]
+        }, false);
+      }
+      const items = validateMenuItems(body.value?.menuItems);
+      if (!items.valid) {
+        return json(response, 422, { error: "Invalid menu", details: items.errors }, false);
+      }
+
+      const restaurant = await store.reconcileRestaurant(reconcile[1].toLowerCase(), {
+        coverageStatus,
+        coverageScope: body.value?.coverageScope,
+        menuItems: items.value
+      });
+      if (!restaurant) return json(response, 404, { error: "Unknown restaurant" }, false);
+      return json(response, 200, { restaurant }, false);
+    }
   }
 
   return json(response, 404, { error: "Not found" });
+}
+
+function readCatalogQuery(parameters) {
+  const errors = [];
+  const value = {};
+
+  const latitude = optionalNumber(parameters, "lat", -90, 90, errors);
+  const longitude = optionalNumber(parameters, "lon", -180, 180, errors);
+  if ((latitude == null) !== (longitude == null)) {
+    errors.push("lat and lon must be supplied together");
+  } else if (latitude != null) {
+    value.latitude = latitude;
+    value.longitude = longitude;
+    value.radiusKm = optionalNumber(parameters, "radiusKm", 0.1, 200, errors) ?? 25;
+  }
+
+  const since = parameters.get("since");
+  if (since != null) {
+    if (Number.isNaN(Date.parse(since))) errors.push("since must be an ISO-8601 timestamp");
+    else value.since = new Date(since).toISOString();
+  }
+
+  const limit = optionalNumber(parameters, "limit", 1, 500, errors);
+  value.limit = limit ?? 100;
+  if (parameters.get("cursor")) value.cursor = parameters.get("cursor");
+
+  return { errors, value };
+}
+
+function optionalNumber(parameters, name, min, max, errors) {
+  const raw = parameters.get(name);
+  if (raw == null) return null;
+  const parsed = Number(raw);
+  if (!Number.isFinite(parsed) || parsed < min || parsed > max) {
+    errors.push(`${name} must be a number between ${min} and ${max}`);
+    return null;
+  }
+  return parsed;
+}
+
+function readJSONBody(request) {
+  return new Promise((resolve) => {
+    let size = 0;
+    const chunks = [];
+    request.on("data", (chunk) => {
+      size += chunk.length;
+      if (size > MAX_BODY_BYTES) {
+        request.destroy();
+        resolve({ error: "Request body too large", status: 413 });
+        return;
+      }
+      chunks.push(chunk);
+    });
+    request.on("end", () => {
+      try {
+        resolve({ value: JSON.parse(Buffer.concat(chunks).toString("utf8") || "null") });
+      } catch {
+        resolve({ error: "Body must be valid JSON", status: 400 });
+      }
+    });
+    request.on("error", () => resolve({ error: "Could not read request body", status: 400 }));
+  });
 }
 
 server.listen(port, host, () => {
@@ -104,5 +212,8 @@ function json(response, statusCode, value, cacheable = true) {
 function isInternalRequestAuthorized(request) {
   const token = process.env.INTERNAL_API_TOKEN;
   if (!token) return false;
-  return request.headers.authorization === `Bearer ${token}`;
+  // Constant-time compare: these endpoints now accept writes, not just reads.
+  const expected = Buffer.from(`Bearer ${token}`, "utf8");
+  const actual = Buffer.from(request.headers.authorization ?? "", "utf8");
+  return actual.length === expected.length && timingSafeEqual(actual, expected);
 }
