@@ -319,3 +319,54 @@ test("a marker does not drift up past a dish priced inline", () => {
     "a dairy dish must never inherit the next dish's vegan marker"
   );
 });
+
+test("a price written with its sizes is kept whole", () => {
+  // SubCulture's layout: one dish, two sizes, no currency symbol.
+  const result = extractMenu(page(`
+    <p>VG = Vegan</p>
+    <li>Roast Veggie Parm (VG)</li><li>Half 11.00 | Whole 16.45</li>
+    <li>Roasted Veggies, Marinara, Mozzarella</li>
+  `));
+  assert.deepEqual(
+    result.items.map((item) => [item.name, item.price]),
+    [["Roast Veggie Parm", "Half 11.00 | Whole 16.45"]],
+    "the diner needs both sizes, not just the first number"
+  );
+});
+
+test("other price-and-size shapes real menus use are recognised", () => {
+  const shapes = [
+    ["$6.00 ea.", "$6.00 ea."],
+    ["Full $19 | Half $14", "Full $19 | Half $14"],
+    ["Side $3.00 | Cup $5.00 | Bowl $7.00", "Side $3.00 | Cup $5.00 | Bowl $7.00"],
+    ["$5.99/Cup", "$5.99/Cup"],
+    ["cup 4.50 or bowl 7.50", "cup 4.50 or bowl 7.50"]
+  ];
+  for (const [line, expected] of shapes) {
+    const result = extractMenu(page(`
+      <p>VG = Vegan</p><li>Test Dish (VG)</li><li>${line}</li>
+    `));
+    assert.equal(result.items[0]?.price, expected, `failed on "${line}"`);
+  }
+});
+
+test("a line that is words plus a price is the next dish, not this dish's price", () => {
+  // The failure this guards: "Lamb Kofta $18" reading as the halloumi's price.
+  const result = extractMenu(page(`
+    <p>V = Vegan</p>
+    <li>Grilled Halloumi (V)</li>
+    <li>Lamb Kofta $18</li>
+  `));
+  assert.equal(result.items.length, 0);
+});
+
+test("numbers that are not prices never become one", () => {
+  // Every one of these appears on a real menu in the pilot catalog.
+  for (const line of ["1 Egg", "4 Donut Bites", "(720)-532-0757", "3 Wise Men",
+                      "Serves 10-12 each", "12 Hour", "%PDF-1.4", "1 0 obj"]) {
+    const result = extractMenu(page(`
+      <p>VG = Vegan</p><li>Test Dish (VG)</li><li>${line}</li>
+    `));
+    assert.equal(result.items.length, 0, `"${line}" must not be read as a price`);
+  }
+});

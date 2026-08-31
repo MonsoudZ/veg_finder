@@ -152,7 +152,10 @@ function collectItems(blocks, classify) {
     // Menus overwhelmingly put the price on its own line beneath the dish, so a
     // dish line and its price are different blocks. Requiring both in one block
     // silently dropped every menu laid out that way.
-    const price = block.match(PRICE) ?? priceOnFollowingLine(blocks[index + 1]);
+    const inline = block.match(PRICE);
+    const price = inline
+      ? inline[0].replace(/\s+/g, "")
+      : priceOnFollowingLine(blocks[index + 1]);
     if (!price) continue;
 
     const name = readName(block);
@@ -164,7 +167,7 @@ function collectItems(blocks, classify) {
 
     items.push({
       name,
-      price: price[0].replace(/\s+/g, ""),
+      price,
       description: "",
       dietaryStatus: decision.dietaryStatus,
       modificationNote: null,
@@ -210,15 +213,46 @@ function trailingMarkers(blocks, legend) {
   return owners;
 }
 
-// Only a line that is *just* a price counts. A following line carrying its own
-// words is the next dish or a description, and borrowing its price would attach
-// the wrong number to this one.
+// A price line beneath a dish is rarely bare. Menus write "Half 11.75 | Whole
+// 17.25", "$6.00 ea.", "cup 4.50 or bowl 7.50" — a price with the size or option
+// it applies to. The whole line is kept as the price, because "Half 11.75 | Whole
+// 17.25" is what the diner needs to see, not "11.75".
+//
+// Every number must still be a recognisable price: a currency amount or two
+// decimal places. Bare integers are excluded deliberately — "1 Egg",
+// "3 Wise Men (Ve,GF)" and "(720)-532-0757" all contain one, and treating those
+// as prices attaches nonsense to a dish or invents a dish out of a phone number.
+const PRICE_GLOBAL = new RegExp(PRICE.source, "g");
+const MAX_PRICE_LINE_LENGTH = 60;
+
+// The words a menu puts next to a price. Anything else beside a number is a
+// dish name or a description — "Lamb Kofta $18" is the next dish, not this
+// dish's price, and reading it as one silently mis-prices the dish above.
+const SIZE_WORDS = new Set([
+  "half", "whole", "full", "side", "cup", "bowl", "ea", "each", "sm", "small",
+  "md", "medium", "lg", "large", "reg", "regular", "oz", "pc", "pcs", "piece",
+  "slice", "single", "double", "or", "and", "per", "add", "gf", "v", "vg"
+]);
+
 function priceOnFollowingLine(next) {
-  if (!next || next.length > 40) return null;
-  const price = next.match(PRICE);
-  if (!price) return null;
-  const leftover = next.replace(new RegExp(PRICE.source, "g"), " ").replace(/[^a-z0-9]/gi, "");
-  return leftover.length === 0 ? price : null;
+  if (!next || next.length > MAX_PRICE_LINE_LENGTH) return null;
+  if (!PRICE.test(next)) return null;
+
+  const labels = (next.replace(PRICE_GLOBAL, " ").match(/[a-z]+/gi) ?? [])
+    .map((label) => label.toLowerCase());
+  const prices = next.match(PRICE_GLOBAL) ?? [];
+  const separated = /[|/]/.test(next) || labels.includes("or");
+
+  // A bare price; a price beside recognised size words; or several prices split
+  // by a separator, which is how a menu writes one dish at two sizes.
+  const usable = labels.length === 0
+    || labels.every((label) => SIZE_WORDS.has(label))
+    || (prices.length > 1 && separated);
+  if (!usable) return null;
+
+  // The whole line is the price: "Half 11.75 | Whole 17.25" is what a diner
+  // needs to see, not "11.75".
+  return next.replace(/\s+/g, " ").trim();
 }
 
 function readName(block) {
