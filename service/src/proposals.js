@@ -14,7 +14,7 @@ import { createExtractionClient, LLM_TIER, proposeWithModel } from "./llm-extrac
 // operator widens this deliberately.
 export function autoPublishTiers(value = process.env.AUTO_PUBLISH_TIERS) {
   const configured = value == null
-    ? new Set([TIERS.FULLY_VEGAN])
+    ? new Set([TIERS.FULLY_VEGAN, TIERS.FULLY_VEGETARIAN])
     : new Set(value.split(",").map((tier) => tier.trim()).filter(Boolean));
 
   // Not a policy choice. A model reading an unlabelled menu is inferring, and
@@ -112,9 +112,14 @@ export async function proposeMenu(store, restaurant, {
 }
 
 function coverageScopeFor(extraction) {
-  return extraction.tier === TIERS.FULLY_VEGAN
-    ? "Every dish on this menu; the restaurant states its whole menu is vegan"
-    : "Dishes the official menu marks with its own dietary legend";
+  switch (extraction.tier) {
+    case TIERS.FULLY_VEGAN:
+      return "Every dish on this menu; the restaurant states its whole menu is vegan";
+    case TIERS.FULLY_VEGETARIAN:
+      return "Every dish on this menu; the restaurant states its whole menu is vegetarian";
+    default:
+      return "Dishes the official menu marks with its own dietary legend";
+  }
 }
 
 // A name-derived, v5-shaped UUID. Deterministic so the same dish keeps its

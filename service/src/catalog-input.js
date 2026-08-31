@@ -7,7 +7,7 @@ export const DIETARY_STATUSES = [
 ];
 export const COVERAGE_STATUSES = ["Complete", "Needs review"];
 export const EXTRACTION_MODES = ["change_detection", "browser_required"];
-export const MENU_PROFILES = ["unknown", "fully_vegan", "manual"];
+export const MENU_PROFILES = ["unknown", "fully_vegan", "fully_vegetarian", "manual"];
 // Only 'official_url' can be fingerprinted automatically. The others record a
 // human observation — a photographed menu, a phone call, a visit — which the
 // checker cannot re-verify, so those restaurants age out instead.

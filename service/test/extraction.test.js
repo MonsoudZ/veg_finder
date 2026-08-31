@@ -224,3 +224,98 @@ test("prices without a currency symbol are recognised, quantities are not", () =
   `));
   assert.deepEqual(result.items.map((item) => item.name), ["Half Sandwich"]);
 });
+
+test("a marker printed below a dish is attached to that dish", () => {
+  // The Corner Beet's layout: name, price, description, add-ons, then the codes.
+  const result = extractMenu(page(`
+    <p>V - Vegan</p>
+    <li>Thai Peanut</li><li>$19</li>
+    <li>mixed greens tossed in thai peanut dressing with crispy tamari tofu</li>
+    <li>pasture-raised egg | 2</li>
+    <li>V/GF</li>
+    <li>Greek</li><li>$16</li>
+    <li>mixed greens with feta and a side of hummus</li>
+    <li>GF | 2</li>
+  `));
+
+  assert.deepEqual(
+    result.items.map((item) => [item.name, item.dietaryStatus]),
+    [["Thai Peanut", "Vegan"]],
+    "only the dish whose codes the legend defines is claimed"
+  );
+});
+
+test("an undefined option code below a dish is not interpreted", () => {
+  // "VO" conventionally means vegan-option, but this menu never says so.
+  const result = extractMenu(page(`
+    <p>V - Vegan</p>
+    <li>Beirut Plate</li><li>$17</li>
+    <li>creamy labneh, two pasture-raised eggs, pickled turnips</li>
+    <li>VO | sub hummus for labneh, sub tofu for egg</li>
+  `));
+  assert.equal(result.items.length, 0, "a code the menu never defined is not evidence");
+});
+
+test("a trailing marker does not leak onto the following dish", () => {
+  const result = extractMenu(page(`
+    <p>V - Vegan</p>
+    <li>House Greens</li><li>$10</li><li>V</li>
+    <li>Steak Frites</li><li>$32</li>
+    <li>grass-fed sirloin with hand-cut fries</li>
+  `));
+  assert.deepEqual(result.items.map((item) => item.name), ["House Greens"]);
+});
+
+test("an operator can declare a restaurant entirely vegetarian", () => {
+  const result = extractMenu(page(`
+    <h1>City Cafe</h1>
+    <li>Mac and Cheese</li><li>$17</li>
+    <li>Buffalo Cauliflower</li><li>$14</li>
+  `), { menuProfile: "fully_vegetarian" });
+
+  assert.equal(result.tier, "fully_vegetarian");
+  assert.equal(result.assertedBy, "operator");
+  assert.deepEqual(
+    result.items.map((item) => [item.name, item.dietaryStatus]),
+    [["Mac and Cheese", "Vegetarian"], ["Buffalo Cauliflower", "Vegetarian"]],
+    "meat-free does not mean dairy-free"
+  );
+});
+
+test("a page stating it is entirely vegetarian is detected", () => {
+  const result = extractMenu(page(`
+    <p>We are a 100% vegetarian restaurant.</p>
+    <li>Mushroom Risotto</li><li>$18</li>
+  `));
+  assert.equal(result.tier, "fully_vegetarian");
+  assert.equal(result.assertedBy, "detection");
+  assert.equal(result.items[0].dietaryStatus, "Vegetarian");
+});
+
+test("merely offering vegetarian options is not a whole-menu claim", () => {
+  for (const claim of ["Great vegetarian options available", "Vegetarian friendly since 1998",
+                       "Ask about our vegetarian dishes"]) {
+    const result = extractMenu(page(`<p>${claim}</p><li>Soup of the Day</li><li>$9</li>`));
+    assert.equal(result.tier, "manual", `"${claim}" must not be read as a whole-menu claim`);
+  }
+});
+
+test("a marker does not drift up past a dish priced inline", () => {
+  // Regression from the live menus: B.L.A.T's price is "Full $17 | Half $12",
+  // which is not a price-only line, so its V marker was attributed to the
+  // burrata above it — turning a dairy dish into a vegan one.
+  const result = extractMenu(page(`
+    <p>V - Vegan</p>
+    <li>Bloomin' Burrata</li><li>$17</li>
+    <li>creamy burrata with marinated cherry tomatoes, basil, and red onion</li>
+    <li>VO | sub crispy tamari tofu</li>
+    <li>B.L.A.T</li><li>Full $17 | Half $12</li>
+    <li>savory tofu bacon with spinach, tomatoes, avocado and vegan spicy mayo</li>
+    <li>V | 4</li>
+  `));
+
+  assert.ok(
+    !result.items.some((item) => item.name.includes("Burrata")),
+    "a dairy dish must never inherit the next dish's vegan marker"
+  );
+});

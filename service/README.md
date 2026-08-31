@@ -103,6 +103,7 @@ claim the restaurant already makes. Two things count as such a claim:
 | Tier | The restaurant's claim | Publishes without review |
 | --- | --- | --- |
 | `fully_vegan` | The whole menu is vegan | Yes, by default |
+| `fully_vegetarian` | The whole menu is meat-free | Yes, by default |
 | `labelled_menu` | The menu marks a dish, *and* publishes a legend defining that mark | Only if enabled |
 | `llm_assisted` | Neither — a model drafts, a person confirms | **Never** |
 | `manual` | Neither, and no model configured | Never |
@@ -142,9 +143,10 @@ Claude Opus 5 rates. Without a key, unlabelled menus fall through to `manual`
 exactly as before.
 
 `AUTO_PUBLISH_TIERS` controls what may publish unreviewed. It defaults to
-`fully_vegan`, which is safe because an operator — not the extractor — records a
-restaurant as entirely vegan by setting `menuProfile` on it, leaving no per-dish
-judgement to make. Setting `menuProfile` to `manual` opts a restaurant out of
+`fully_vegan,fully_vegetarian` — both are whole-restaurant facts an operator
+records via `menuProfile`, not judgements the extractor makes, so no per-dish
+decision is left open. A fully vegetarian restaurant is meat-free but not
+dairy-free, so its dishes publish as `Vegetarian`. Setting `menuProfile` to `manual` opts a restaurant out of
 automated extraction entirely. Set `AUTO_PUBLISH_TIERS=` to make everything a
 proposal.
 

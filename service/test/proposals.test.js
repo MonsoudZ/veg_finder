@@ -145,9 +145,16 @@ test("derived item ids are stable, namespaced, and valid UUIDs", () => {
   assert.notEqual(a, stableItemID("22222222-2222-4222-8222-222222222222", "Chana Bowl"));
 });
 
-test("the default policy is the narrow one", () => {
-  assert.deepEqual([...autoPublishTiers(undefined)], ["fully_vegan"]);
-  assert.deepEqual([...autoPublishTiers("")], []);
+test("the default policy publishes only what the restaurant asserts about itself", () => {
+  const defaults = autoPublishTiers(undefined);
+  // Both defaults are whole-restaurant facts an operator records, leaving no
+  // per-dish judgement to make.
+  assert.deepEqual([...defaults].sort(), ["fully_vegan", "fully_vegetarian"]);
+  // Anything requiring a judgement per dish stays behind review.
+  assert.equal(defaults.has("labelled_menu"), false);
+  assert.equal(defaults.has("llm_assisted"), false);
+  assert.equal(defaults.has("manual"), false);
+  assert.deepEqual([...autoPublishTiers("")], [], "an empty setting publishes nothing");
 });
 
 test("a source that cannot be fetched fails loudly rather than publishing", async () => {

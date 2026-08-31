@@ -13,7 +13,12 @@
 // meaning the menu never defines is not evidence either. Anything outside those
 // two cases is left for a human, which is the whole point of tiering.
 
-export const TIERS = { FULLY_VEGAN: "fully_vegan", LABELLED_MENU: "labelled_menu", MANUAL: "manual" };
+export const TIERS = {
+  FULLY_VEGAN: "fully_vegan",
+  FULLY_VEGETARIAN: "fully_vegetarian",
+  LABELLED_MENU: "labelled_menu",
+  MANUAL: "manual"
+};
 
 // Deliberately narrow. A missed dish costs coverage; a wrong one costs the trust
 // of somebody who cannot eat it.
@@ -33,6 +38,11 @@ const MARKER_GLOBAL = /[(\[{]\s*[a-z]{1,3}(?:\s*[,/]\s*[a-z]{1,3})*\s*[)\]}]/gi;
 // "VG = Vegan", "(V) — Vegetarian", "V: vegan".
 const LEGEND_ENTRY = /[(\[{]?\s*\b(vgn|vg|ve|v)\b\s*[)\]}]?\s*[=:–—-]\s*(vegan|vegetarian)\b/gi;
 
+// Some menus print the codes on their own line beneath the dish rather than
+// beside its name: a price line, a description, then "V/GF". The leading codes
+// are the marker; anything after a pipe is a surcharge or a substitution note.
+const STANDALONE_MARKER = /^([a-z]{1,3}(?:\s*[,/]\s*[a-z]{1,3})*)\s*(?:\|.*)?$/i;
+
 const WHOLLY_VEGAN_CLAIM = new RegExp([
   /100\s*%\s*(vegan|plant[\s-]?based)/,
   /\b(entirely|completely|fully|all)\s+(vegan|plant[\s-]?based)\b/,
@@ -44,6 +54,16 @@ const WHOLLY_VEGAN_CLAIM = new RegExp([
 // diner, and guessing that instruction is exactly the kind of inference this
 // pipeline refuses to make. Those dishes stay human work.
 const CONDITIONAL = /\b(on|upon)\s+request\b|\bavailable\b|\boption(al)?\b|\bsub(stitute)?\b|\bask\b|\bcan\s+be\s+made\b/i;
+
+// Meat-free but not dairy-free. Deliberately narrower than the vegan claim: a
+// page saying "vegetarian friendly" or "vegetarian options" is not saying the
+// whole menu is meat-free, and must not be read that way.
+const WHOLLY_VEGETARIAN_CLAIM = new RegExp([
+  /100\s*%\s*vegetarian/,
+  /\b(entirely|completely|fully|all)\s+vegetarian\b/,
+  /\ball\s+(of\s+)?(our\s+)?(food|dishes|menu|items)\s+(is|are)\s+vegetarian\b/,
+  /\b(a|an)?\s*(100\s*%\s*)?vegetarian\s+(restaurant|cafe|café|bakery|kitchen|eatery|deli)\b/
+].map((pattern) => pattern.source).join("|"), "i");
 
 export function extractMenu(html, { menuProfile = "unknown" } = {}) {
   const blocks = textBlocks(html);
@@ -58,13 +78,28 @@ export function extractMenu(html, { menuProfile = "unknown" } = {}) {
   else if (pageSaysVegan) reasons.push("The page states the whole menu is vegan");
 
   if (operatorSaysVegan || pageSaysVegan) {
-    const items = collectItems(blocks, () => ({ dietaryStatus: "Vegan" }));
     return {
       tier: TIERS.FULLY_VEGAN,
       assertedBy: operatorSaysVegan ? "operator" : "detection",
       legend: null,
       reasons,
-      items
+      items: collectItems(blocks, () => ({ dietaryStatus: "Vegan" }))
+    };
+  }
+
+  const operatorSaysVegetarian = menuProfile === TIERS.FULLY_VEGETARIAN;
+  const pageSaysVegetarian = WHOLLY_VEGETARIAN_CLAIM.test(page);
+  if (operatorSaysVegetarian) reasons.push("Operator recorded this restaurant as entirely vegetarian");
+  else if (pageSaysVegetarian) reasons.push("The page states the whole menu is vegetarian");
+
+  if (operatorSaysVegetarian || pageSaysVegetarian) {
+    return {
+      tier: TIERS.FULLY_VEGETARIAN,
+      assertedBy: operatorSaysVegetarian ? "operator" : "detection",
+      legend: null,
+      reasons,
+      // Meat-free, but the cheese is real cheese.
+      items: collectItems(blocks, () => ({ dietaryStatus: "Vegetarian" }))
     };
   }
 
@@ -73,9 +108,16 @@ export function extractMenu(html, { menuProfile = "unknown" } = {}) {
       `Menu publishes a legend: ${Object.entries(legend)
         .map(([marker, meaning]) => `${marker.toUpperCase()} = ${meaning}`).join(", ")}`
     );
-    const items = collectItems(blocks, (block) => {
+    const trailing = trailingMarkers(blocks, legend);
+    const items = collectItems(blocks, (block, index) => {
       const match = block.match(MARKER);
-      if (!match) return null;
+      if (!match) {
+        // No marker beside the name; look for one printed below the dish.
+        const meaning = trailing.get(index);
+        if (!meaning) return null;
+        if (CONDITIONAL.test(block)) return null;
+        return { dietaryStatus: meaning === "vegan" ? "Vegan" : "Vegetarian" };
+      }
       // Take the dietary code from the bracket and ignore the rest ("GF", "N").
       const meanings = match[1].split(/[,/]/)
         .map((code) => legend[code.trim().toLowerCase()])
@@ -104,7 +146,7 @@ function collectItems(blocks, classify) {
   const seen = new Set();
 
   for (const [index, block] of blocks.entries()) {
-    const decision = classify(block);
+    const decision = classify(block, index);
     if (!decision) continue;
 
     // Menus overwhelmingly put the price on its own line beneath the dish, so a
@@ -132,6 +174,40 @@ function collectItems(blocks, classify) {
     });
   }
   return items;
+}
+
+// Walks the page attaching each standalone marker line to the dish above it. A
+// dish owns every line from its own until the next dish begins, so a marker in
+// that span belongs to it. Codes the legend does not define are ignored — "VO"
+// (vegan option) is a convention, not something this menu defined, and guessing
+// it would be inference.
+function trailingMarkers(blocks, legend) {
+  const owners = new Map();
+  let dish = null;
+  let ownPriceLine = -1;
+  for (const [index, block] of blocks.entries()) {
+    if (index === ownPriceLine) continue;
+    if (priceOnFollowingLine(blocks[index + 1]) && readName(block)) {
+      dish = index;
+      ownPriceLine = index + 1;
+      continue;
+    }
+    // Any other priced line starts something new — often a dish whose price is
+    // written inline, like "Full $17 | Half $12". Close the window rather than
+    // let the next dish's marker drift up onto this one.
+    if (PRICE.test(block)) {
+      dish = null;
+      continue;
+    }
+    if (dish === null || owners.has(dish)) continue;
+    const match = block.match(STANDALONE_MARKER);
+    if (!match) continue;
+    const meanings = match[1].split(/[,/]/)
+      .map((code) => legend[code.trim().toLowerCase()])
+      .filter(Boolean);
+    if (new Set(meanings).size === 1) owners.set(dish, meanings[0]);
+  }
+  return owners;
 }
 
 // Only a line that is *just* a price counts. A following line carrying its own
