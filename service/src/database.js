@@ -24,7 +24,7 @@ function migrate(database) {
       address TEXT NOT NULL,
       latitude REAL NOT NULL,
       longitude REAL NOT NULL,
-      menu_url TEXT NOT NULL,
+      menu_url TEXT,
       check_url TEXT,
       extraction_mode TEXT NOT NULL DEFAULT 'change_detection',
       verified_at TEXT NOT NULL,
@@ -36,7 +36,8 @@ function migrate(database) {
       review_required INTEGER NOT NULL DEFAULT 0,
       check_error TEXT,
       updated_at TEXT,
-      menu_profile TEXT NOT NULL DEFAULT 'unknown'
+      menu_profile TEXT NOT NULL DEFAULT 'unknown',
+      verification_method TEXT NOT NULL DEFAULT 'official_url'
     );
 
     CREATE TABLE IF NOT EXISTS menu_items (
@@ -83,12 +84,6 @@ function migrate(database) {
       change_kind TEXT NOT NULL CHECK (change_kind IN ('published', 'updated', 'retired'))
     );
 
-    CREATE INDEX IF NOT EXISTS menu_items_restaurant
-      ON menu_items(restaurant_id, sort_order);
-
-    CREATE INDEX IF NOT EXISTS restaurants_updated_at ON restaurants(updated_at, id);
-    CREATE INDEX IF NOT EXISTS restaurants_name_id ON restaurants(name, id);
-    CREATE INDEX IF NOT EXISTS restaurants_location ON restaurants(latitude, longitude);
   `);
 
   // Keep existing developer databases usable as the catalog schema evolves.
@@ -101,6 +96,31 @@ function migrate(database) {
   }
   if (!columns.has("audited_at")) {
     database.exec("ALTER TABLE restaurants ADD COLUMN audited_at TEXT");
+  }
+  if (!columns.has("verification_method")) {
+    database.exec(
+      "ALTER TABLE restaurants ADD COLUMN verification_method TEXT NOT NULL DEFAULT 'official_url'"
+    );
+  }
+  // Older development databases declared menu_url NOT NULL, which blocks
+  // restaurants that have no menu online. SQLite cannot drop a constraint, so
+  // the table is rebuilt once.
+  const menuURLColumn = database.prepare("PRAGMA table_info(restaurants)").all()
+    .find((column) => column.name === "menu_url");
+  if (menuURLColumn?.notnull === 1) {
+    const legacyColumns = database.prepare("PRAGMA table_info(restaurants)").all()
+      .map((column) => column.name);
+    database.exec("PRAGMA foreign_keys = OFF");
+    database.exec("ALTER TABLE restaurants RENAME TO restaurants_legacy");
+    migrate(database);
+    const carried = database.prepare("PRAGMA table_info(restaurants)").all()
+      .map((column) => column.name)
+      .filter((column) => legacyColumns.includes(column))
+      .join(", ");
+    database.exec(`INSERT INTO restaurants (${carried}) SELECT ${carried} FROM restaurants_legacy`);
+    database.exec("DROP TABLE restaurants_legacy");
+    database.exec("PRAGMA foreign_keys = ON");
+    return;
   }
   if (!columns.has("menu_profile")) {
     database.exec("ALTER TABLE restaurants ADD COLUMN menu_profile TEXT NOT NULL DEFAULT 'unknown'");
@@ -120,6 +140,14 @@ function migrate(database) {
     database.exec("ALTER TABLE menu_items ADD COLUMN updated_at TEXT");
     database.exec("UPDATE menu_items SET updated_at = last_verified_at");
   }
+
+  // Last: every column these reference is guaranteed to exist by now.
+  database.exec(`
+    CREATE INDEX IF NOT EXISTS menu_items_restaurant ON menu_items(restaurant_id, sort_order);
+    CREATE INDEX IF NOT EXISTS restaurants_updated_at ON restaurants(updated_at, id);
+    CREATE INDEX IF NOT EXISTS restaurants_name_id ON restaurants(name, id);
+    CREATE INDEX IF NOT EXISTS restaurants_location ON restaurants(latitude, longitude);
+  `);
 }
 
 // Replaces a restaurant's published menu and records what changed. Retires every
@@ -295,6 +323,7 @@ export function publicRestaurant(row, items) {
     lastCheckedAt: row.last_checked_at,
     updatedAt: row.updated_at ?? row.verified_at,
     menuProfile: row.menu_profile ?? "unknown",
+    verificationMethod: row.verification_method ?? "official_url",
     menuItems: items.map((item) => ({
       id: item.id,
       name: item.name,
@@ -400,7 +429,7 @@ export class SQLiteStore {
       SELECT id, name, neighborhood, address, latitude, longitude, menu_url,
              verified_at, coverage_status, coverage_scope, audited_at,
              last_checked_at, COALESCE(updated_at, verified_at) AS updated_at,
-             menu_profile
+             menu_profile, verification_method
       FROM restaurants ${where} ORDER BY ${order}
       ${latitude == null ? "LIMIT ?" : ""}
     `;
@@ -451,8 +480,8 @@ export class SQLiteStore {
         INSERT INTO restaurants (
           id, name, neighborhood, address, latitude, longitude, menu_url, check_url,
           extraction_mode, verified_at, coverage_status, coverage_scope, audited_at,
-          review_required, updated_at, menu_profile
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'Needs review', ?, NULL, 1, ?, ?)
+          review_required, updated_at, menu_profile, verification_method
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'Needs review', ?, NULL, 1, ?, ?, ?)
         ON CONFLICT(id) DO UPDATE SET
           name = excluded.name,
           neighborhood = excluded.neighborhood,
@@ -464,11 +493,13 @@ export class SQLiteStore {
           extraction_mode = excluded.extraction_mode,
           coverage_scope = excluded.coverage_scope,
           updated_at = excluded.updated_at,
-          menu_profile = excluded.menu_profile
+          menu_profile = excluded.menu_profile,
+          verification_method = excluded.verification_method
       `).run(
         record.id, record.name, record.neighborhood, record.address,
         record.latitude, record.longitude, record.menuURL, record.checkURL,
-        record.extractionMode, now, record.coverageScope, now, record.menuProfile
+        record.extractionMode, now, record.coverageScope, now, record.menuProfile,
+        record.verificationMethod
       );
       this.database.exec("COMMIT");
       return { created: !existed };
@@ -511,7 +542,7 @@ export class SQLiteStore {
   async getCheckTarget(id) {
     return this.database.prepare(`
       SELECT id, name, COALESCE(check_url, menu_url) AS check_url, source_hash,
-             extraction_mode, menu_profile
+             extraction_mode, menu_profile, verification_method, audited_at
       FROM restaurants WHERE id = ?
     `).get(id) ?? null;
   }
@@ -519,7 +550,7 @@ export class SQLiteStore {
   async listCheckTargets() {
     return this.database.prepare(`
       SELECT id, name, COALESCE(check_url, menu_url) AS check_url, source_hash,
-             extraction_mode, menu_profile
+             extraction_mode, menu_profile, verification_method, audited_at
       FROM restaurants ORDER BY name COLLATE NOCASE
     `).all();
   }

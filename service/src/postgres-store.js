@@ -190,7 +190,7 @@ export class PostgresStore {
       SELECT id, name, neighborhood, address, latitude, longitude, menu_url,
              verified_at, coverage_status, coverage_scope, audited_at,
              last_checked_at, COALESCE(updated_at, verified_at) AS updated_at,
-             menu_profile
+             menu_profile, verification_method
       FROM restaurants ${where} ORDER BY ${order} ${limitClause}
     `, parameters);
 
@@ -238,18 +238,19 @@ export class PostgresStore {
       INSERT INTO restaurants (
         id, name, neighborhood, address, latitude, longitude, menu_url, check_url,
         extraction_mode, verified_at, coverage_status, coverage_scope, audited_at,
-        review_required, updated_at, menu_profile
-      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'Needs review',$11,NULL,TRUE,$10,$12)
+        review_required, updated_at, menu_profile, verification_method
+      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'Needs review',$11,NULL,TRUE,$10,$12,$13)
       ON CONFLICT(id) DO UPDATE SET
         name=EXCLUDED.name, neighborhood=EXCLUDED.neighborhood, address=EXCLUDED.address,
         latitude=EXCLUDED.latitude, longitude=EXCLUDED.longitude,
         menu_url=EXCLUDED.menu_url, check_url=EXCLUDED.check_url,
         extraction_mode=EXCLUDED.extraction_mode, coverage_scope=EXCLUDED.coverage_scope,
-        updated_at=EXCLUDED.updated_at, menu_profile=EXCLUDED.menu_profile
+        updated_at=EXCLUDED.updated_at, menu_profile=EXCLUDED.menu_profile,
+        verification_method=EXCLUDED.verification_method
     `, [
       record.id, record.name, record.neighborhood, record.address, record.latitude,
       record.longitude, record.menuURL, record.checkURL, record.extractionMode,
-      now, record.coverageScope, record.menuProfile
+      now, record.coverageScope, record.menuProfile, record.verificationMethod
     ]);
     return { created: rowCount === 0 };
   }
@@ -287,7 +288,8 @@ export class PostgresStore {
   async getCheckTarget(id) {
     const { rows } = await this.pool.query(`
       SELECT id, name, COALESCE(check_url, menu_url) AS check_url, source_hash,
-             extraction_mode, menu_profile FROM restaurants WHERE id=$1
+             extraction_mode, menu_profile, verification_method, audited_at
+      FROM restaurants WHERE id=$1
     `, [id]);
     return rows[0] ?? null;
   }
@@ -295,7 +297,8 @@ export class PostgresStore {
   async listCheckTargets() {
     const { rows } = await this.pool.query(`
       SELECT id, name, COALESCE(check_url, menu_url) AS check_url, source_hash,
-             extraction_mode, menu_profile FROM restaurants ORDER BY name
+             extraction_mode, menu_profile, verification_method, audited_at
+      FROM restaurants ORDER BY name
     `);
     return rows;
   }
@@ -476,6 +479,7 @@ function publicRestaurant(row, items) {
     lastCheckedAt: iso(row.last_checked_at),
     updatedAt: iso(row.updated_at ?? row.verified_at),
     menuProfile: row.menu_profile ?? "unknown",
+    verificationMethod: row.verification_method ?? "official_url",
     menuItems: items.map((item) => ({
       id: item.id,
       name: item.name,

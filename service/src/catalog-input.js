@@ -8,6 +8,10 @@ export const DIETARY_STATUSES = [
 export const COVERAGE_STATUSES = ["Complete", "Needs review"];
 export const EXTRACTION_MODES = ["change_detection", "browser_required"];
 export const MENU_PROFILES = ["unknown", "fully_vegan", "manual"];
+// Only 'official_url' can be fingerprinted automatically. The others record a
+// human observation — a photographed menu, a phone call, a visit — which the
+// checker cannot re-verify, so those restaurants age out instead.
+export const VERIFICATION_METHODS = ["official_url", "menu_photo", "phone", "in_person"];
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
@@ -21,7 +25,19 @@ export function validateRestaurant(input) {
   value.address = requireText(input?.address, "address", errors, 300);
   value.latitude = requireNumber(input?.latitude, "latitude", -90, 90, errors);
   value.longitude = requireNumber(input?.longitude, "longitude", -180, 180, errors);
-  value.menuURL = requireHTTPURL(input?.menuURL, "menuURL", errors);
+  value.verificationMethod = optionalEnum(
+    input?.verificationMethod, "verificationMethod", VERIFICATION_METHODS, "official_url", errors
+  );
+  // A restaurant with no menu online is still a real restaurant; it just cannot
+  // be checked automatically. Require the URL only when we claim to have one.
+  if (input?.menuURL == null && value.verificationMethod !== "official_url") {
+    value.menuURL = null;
+  } else {
+    value.menuURL = requireHTTPURL(input?.menuURL, "menuURL", errors);
+    if (input?.menuURL == null) {
+      errors.push('menuURL is required unless verificationMethod is menu_photo, phone, or in_person');
+    }
+  }
   value.checkURL = input?.checkURL == null
     ? null
     : requireHTTPURL(input.checkURL, "checkURL", errors);

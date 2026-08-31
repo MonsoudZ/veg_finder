@@ -1,15 +1,40 @@
 import { createHash } from "node:crypto";
 import { loadBrowserSource } from "./browser-source.js";
 
+// How long a human-verified record stands before it must be looked at again.
+// A photographed or phoned-in menu has no fingerprint to watch, so without a
+// clock it would stay published unexamined forever.
+const OFFLINE_REVIEW_DAYS = Number(process.env.OFFLINE_REVIEW_DAYS ?? 90);
+
 export async function checkMenus(
   store,
-  { fetchImpl = fetch, browserFetchImpl = loadBrowserSource, logger = console } = {}
+  { fetchImpl = fetch, browserFetchImpl = loadBrowserSource, logger = console,
+    offlineReviewDays = OFFLINE_REVIEW_DAYS, now = () => new Date() } = {}
 ) {
   const restaurants = await store.listCheckTargets();
 
   const results = [];
   for (const restaurant of restaurants) {
     const checkedAt = new Date().toISOString();
+
+    // No URL means no fingerprint. Age the record instead of skipping it.
+    if (!restaurant.check_url) {
+      const age = daysSince(restaurant.audited_at, now());
+      if (age !== null && age < offlineReviewDays) {
+        logger.log(`OFFLINE ${restaurant.name}: verified ${Math.floor(age)}d ago, still current`);
+        results.push({ id: restaurant.id, name: restaurant.name, status: "ok" });
+        continue;
+      }
+      const reason = age === null
+        ? `Verified ${describeMethod(restaurant.verification_method)} but never audited; needs review`
+        : `Verified ${describeMethod(restaurant.verification_method)} ${Math.floor(age)} days ago; ` +
+          `re-verification due after ${offlineReviewDays} days`;
+      await store.recordCheckFailure({ restaurantID: restaurant.id, checkedAt, error: reason });
+      logger.log(`REVIEW DUE ${restaurant.name}: ${reason}`);
+      results.push({ id: restaurant.id, name: restaurant.name, status: "review_due", error: reason });
+      continue;
+    }
+
     try {
       const sourceText = restaurant.extraction_mode === "browser_required"
         ? await browserFetchImpl(restaurant.check_url)
@@ -69,4 +94,20 @@ function normalize(source) {
     .replace(/&#39;|&apos;/gi, "'")
     .replace(/\s+/g, " ")
     .trim();
+}
+
+function daysSince(timestamp, now) {
+  if (!timestamp) return null;
+  const then = new Date(timestamp);
+  if (Number.isNaN(then.getTime())) return null;
+  return (now.getTime() - then.getTime()) / 86_400_000;
+}
+
+function describeMethod(method) {
+  switch (method) {
+    case "menu_photo": return "from a photographed menu";
+    case "phone": return "by phone";
+    case "in_person": return "in person";
+    default: return "without an online source";
+  }
 }

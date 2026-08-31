@@ -60,14 +60,16 @@ function parseWebhookURL(value, logger) {
 export function summarizeCheck(results, reviewQueue) {
   const changed = results.filter((result) => result.status === "changed");
   const failed = results.filter((result) => result.status === "failed");
+  // Human-verified records have no fingerprint; they come due on an age clock.
+  const reviewDue = results.filter((result) => result.status === "review_due");
   const queueSize = reviewQueue.length;
 
-  if (changed.length === 0 && failed.length === 0 && queueSize === 0) {
+  if (changed.length === 0 && failed.length === 0 && reviewDue.length === 0 && queueSize === 0) {
     return { shouldNotify: false };
   }
 
   const lines = [];
-  if (changed.length === 0 && failed.length === 0) {
+  if (changed.length === 0 && failed.length === 0 && reviewDue.length === 0) {
     lines.push(
       `VegFinder catalog — ${count(queueSize, "restaurant")} still awaiting review`,
       "",
@@ -87,6 +89,10 @@ export function summarizeCheck(results, reviewQueue) {
       lines.push(`Source unreachable (${failed.length}):`);
       lines.push(...failed.map((result) => `• ${result.name ?? result.id} — ${result.error}`), "");
     }
+    if (reviewDue.length > 0) {
+      lines.push(`Re-verification due (${reviewDue.length}):`);
+      lines.push(...reviewDue.map((result) => `• ${result.name ?? result.id} — ${result.error}`), "");
+    }
   }
   lines.push(
     queueSize === 1
@@ -103,6 +109,7 @@ export function summarizeCheck(results, reviewQueue) {
       event: "menu_check",
       changed: changed.map(nameOrID),
       failed: failed.map((result) => ({ restaurant: nameOrID(result), error: result.error })),
+      reviewDue: reviewDue.map(nameOrID),
       reviewQueueSize: queueSize
     }
   };

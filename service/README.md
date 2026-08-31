@@ -32,6 +32,24 @@ is null; cursors are opaque and an unreadable one restarts from the beginning.
 Nearby queries prefilter with a bounding box in SQL and then rank by true
 distance, so `radiusKm` is exact rather than a box approximation.
 
+## Restaurants with no menu online
+
+Plenty of restaurants publish no menu — paper only, a chalkboard, a phone number.
+They are entered with `verificationMethod` instead of a `menuURL`:
+
+| `verificationMethod` | Meaning | Checked how |
+| --- | --- | --- |
+| `official_url` (default) | A menu page we can fetch | Fingerprinted every cycle |
+| `menu_photo` | Photographed menu | Age clock |
+| `phone` | Confirmed by phone | Age clock |
+| `in_person` | Confirmed on a visit | Age clock |
+
+`menuURL` is required only for `official_url`. The other three record a human
+observation the checker cannot re-verify, so instead of being skipped — which
+would leave them published and unexamined forever — they are re-queued for review
+once their audit passes `OFFLINE_REVIEW_DAYS` (default 90). Re-auditing clears
+them, and the alert names them under "Re-verification due".
+
 ## Editing the catalog
 
 The database is the source of truth. `data/catalog.seed.json` only bootstraps an
@@ -86,7 +104,8 @@ claim the restaurant already makes. Two things count as such a claim:
 | --- | --- | --- |
 | `fully_vegan` | The whole menu is vegan | Yes, by default |
 | `labelled_menu` | The menu marks a dish, *and* publishes a legend defining that mark | Only if enabled |
-| `manual` | Neither — a person must audit it | Never |
+| `llm_assisted` | Neither — a model drafts, a person confirms | **Never** |
+| `manual` | Neither, and no model configured | Never |
 
 Nothing is inferred from a dish name or its ingredients. "Veggie Burger",
 "garden salad" and "contains no meat" are not evidence. A marker such as `(V)` is
@@ -98,6 +117,29 @@ evidence, so a reviewer can check it without refetching.
 Extraction never proposes a `Can be made ...` status. Those dishes need a specific
 instruction to the diner, and inventing that instruction is exactly the inference
 this pipeline refuses to make, so they stay human work.
+
+### Model-assisted drafting
+
+Most menus publish no legend, and a human reading each one is what caps the
+catalog at a few hundred restaurants. When `ANTHROPIC_API_KEY` is set, those
+menus go to `claude-opus-5` (override with `EXTRACTION_MODEL`), which drafts
+qualifying dishes for a person to confirm.
+
+Every drafted item must quote the menu **verbatim**, and every quote is checked
+against the fetched page before the draft exists. A quote that is not in the
+source is discarded automatically — so a fabricated dish, or a real dish with an
+invented justification, never reaches a reviewer. Verification normalises
+whitespace and dash and quote characters, because HTML rendering changes those;
+it does not tolerate a changed word.
+
+`llm_assisted` is **never publishable**. Listing it in `AUTO_PUBLISH_TIERS` logs
+a warning and is ignored — a model reading an unlabelled menu is inferring, and
+inference does not publish here.
+
+Cost scales with menus, not restaurants: the system prompt is cached, so a batch
+pays for it once per five-minute window. Budget roughly a few cents per menu at
+Claude Opus 5 rates. Without a key, unlabelled menus fall through to `manual`
+exactly as before.
 
 `AUTO_PUBLISH_TIERS` controls what may publish unreviewed. It defaults to
 `fully_vegan`, which is safe because an operator — not the extractor — records a
