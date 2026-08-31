@@ -15,10 +15,14 @@ enum RestaurantSearch {
     static func results(
         restaurants: [Restaurant],
         filter: DietaryFilter,
+        includeModifications: Bool = true,
         origin: CLLocation
     ) -> [RestaurantResult] {
         restaurants.compactMap { restaurant in
-            let items = restaurant.matchingItems(for: filter)
+            let items = restaurant.matchingItems(
+                for: filter,
+                includeModifications: includeModifications
+            )
             guard !items.isEmpty else { return nil }
             return RestaurantResult(
                 restaurant: restaurant,

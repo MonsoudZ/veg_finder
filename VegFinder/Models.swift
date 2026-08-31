@@ -146,7 +146,13 @@ struct Restaurant: Identifiable, Codable, Hashable {
         CLLocation(latitude: latitude, longitude: longitude)
     }
 
-    func matchingItems(for filter: DietaryFilter) -> [MenuItem] {
-        menuItems.filter { filter.includes($0.dietaryStatus) }
+    func matchingItems(
+        for filter: DietaryFilter,
+        includeModifications: Bool = true
+    ) -> [MenuItem] {
+        menuItems.filter { item in
+            filter.includes(item.dietaryStatus)
+                && (includeModifications || !item.dietaryStatus.requiresModification)
+        }
     }
 }

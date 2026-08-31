@@ -5,6 +5,7 @@ struct NearbyRestaurantsView: View {
     @StateObject private var locationManager = LocationManager()
     @StateObject private var catalog = RestaurantCatalog()
     @State private var filter: DietaryFilter = .both
+    @State private var includeModifications = true
 
     private var origin: CLLocation {
         locationManager.location ?? RestaurantSearch.pilotCenter
@@ -14,6 +15,7 @@ struct NearbyRestaurantsView: View {
         RestaurantSearch.results(
             restaurants: catalog.restaurants,
             filter: filter,
+            includeModifications: includeModifications,
             origin: origin
         )
     }
@@ -26,6 +28,8 @@ struct NearbyRestaurantsView: View {
 
                     if catalog.restaurants.isEmpty {
                         catalogState
+                    } else if results.isEmpty {
+                        noMatchesState
                     }
 
                     ForEach(results) { result in
@@ -43,7 +47,10 @@ struct NearbyRestaurantsView: View {
             .navigationDestination(for: Restaurant.self) { restaurant in
                 RestaurantDetailView(
                     restaurant: restaurant,
-                    items: restaurant.matchingItems(for: filter),
+                    items: restaurant.matchingItems(
+                        for: filter,
+                        includeModifications: includeModifications
+                    ),
                     distanceMeters: origin.distance(from: restaurant.location)
                 )
             }
@@ -70,6 +77,12 @@ struct NearbyRestaurantsView: View {
             }
             .pickerStyle(.segmented)
 
+            Toggle(isOn: $includeModifications) {
+                Label("Include dishes that need changes", systemImage: "wrench.and.screwdriver")
+                    .font(.subheadline)
+            }
+            .tint(.green)
+
             HStack(spacing: 5) {
                 Image(systemName: locationIcon)
                 Text(locationDescription)
@@ -82,6 +95,25 @@ struct NearbyRestaurantsView: View {
         .padding(.horizontal, 16)
         .padding(.vertical, 10)
         .background(.bar)
+    }
+
+    private var noMatchesState: some View {
+        ContentUnavailableView {
+            Label("No matching meals", systemImage: "leaf")
+        } description: {
+            if includeModifications {
+                Text("No restaurants in this catalog have items matching this diet.")
+            } else {
+                Text("Try including dishes that can qualify with a confirmed modification.")
+            }
+        } actions: {
+            if !includeModifications {
+                Button("Include modifications") {
+                    includeModifications = true
+                }
+            }
+        }
+        .padding(.vertical, 24)
     }
 
     private var verificationNotice: some View {

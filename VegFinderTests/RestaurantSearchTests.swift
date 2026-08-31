@@ -13,6 +13,38 @@ final class RestaurantSearchTests: XCTestCase {
         XCTAssertEqual(results.first?.items.map(\.dietaryStatus), [.vegan, .veganWithModification])
     }
 
+    func testModificationFilterKeepsOnlyItemsServedForTheSelectedDiet() {
+        let results = RestaurantSearch.results(
+            restaurants: [sampleRestaurant],
+            filter: .vegan,
+            includeModifications: false,
+            origin: RestaurantSearch.pilotCenter
+        )
+
+        XCTAssertEqual(results.first?.items.map(\.dietaryStatus), [.vegan])
+    }
+
+    func testModificationFilterRemovesRestaurantsWithNoAsServedMatches() {
+        let modificationOnly = Restaurant(
+            name: "Modification only",
+            neighborhood: "Capitol Hill",
+            address: "Denver",
+            latitude: 39.734,
+            longitude: -104.980,
+            menuItems: [sampleItem(status: .veganWithModification, note: "Remove cheese")],
+            verifiedAt: .now
+        )
+
+        let results = RestaurantSearch.results(
+            restaurants: [modificationOnly],
+            filter: .vegan,
+            includeModifications: false,
+            origin: RestaurantSearch.pilotCenter
+        )
+
+        XCTAssertTrue(results.isEmpty)
+    }
+
     func testVegetarianFilterIncludesEveryDietaryStatus() {
         let items = sampleRestaurant.matchingItems(for: .vegetarian)
         XCTAssertEqual(items.count, 4)
