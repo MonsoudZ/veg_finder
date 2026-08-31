@@ -35,7 +35,8 @@ function migrate(database) {
       source_hash TEXT,
       review_required INTEGER NOT NULL DEFAULT 0,
       check_error TEXT,
-      updated_at TEXT
+      updated_at TEXT,
+      menu_profile TEXT NOT NULL DEFAULT 'unknown'
     );
 
     CREATE TABLE IF NOT EXISTS menu_items (
@@ -100,6 +101,9 @@ function migrate(database) {
   }
   if (!columns.has("audited_at")) {
     database.exec("ALTER TABLE restaurants ADD COLUMN audited_at TEXT");
+  }
+  if (!columns.has("menu_profile")) {
+    database.exec("ALTER TABLE restaurants ADD COLUMN menu_profile TEXT NOT NULL DEFAULT 'unknown'");
   }
   if (!columns.has("updated_at")) {
     database.exec("ALTER TABLE restaurants ADD COLUMN updated_at TEXT");
@@ -290,6 +294,7 @@ export function publicRestaurant(row, items) {
     auditedAt: row.audited_at ?? row.verified_at,
     lastCheckedAt: row.last_checked_at,
     updatedAt: row.updated_at ?? row.verified_at,
+    menuProfile: row.menu_profile ?? "unknown",
     menuItems: items.map((item) => ({
       id: item.id,
       name: item.name,
@@ -394,7 +399,8 @@ export class SQLiteStore {
     const sql = `
       SELECT id, name, neighborhood, address, latitude, longitude, menu_url,
              verified_at, coverage_status, coverage_scope, audited_at,
-             last_checked_at, COALESCE(updated_at, verified_at) AS updated_at
+             last_checked_at, COALESCE(updated_at, verified_at) AS updated_at,
+             menu_profile
       FROM restaurants ${where} ORDER BY ${order}
       ${latitude == null ? "LIMIT ?" : ""}
     `;
@@ -445,8 +451,8 @@ export class SQLiteStore {
         INSERT INTO restaurants (
           id, name, neighborhood, address, latitude, longitude, menu_url, check_url,
           extraction_mode, verified_at, coverage_status, coverage_scope, audited_at,
-          review_required, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'Needs review', ?, NULL, 1, ?)
+          review_required, updated_at, menu_profile
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'Needs review', ?, NULL, 1, ?, ?)
         ON CONFLICT(id) DO UPDATE SET
           name = excluded.name,
           neighborhood = excluded.neighborhood,
@@ -457,11 +463,12 @@ export class SQLiteStore {
           check_url = excluded.check_url,
           extraction_mode = excluded.extraction_mode,
           coverage_scope = excluded.coverage_scope,
-          updated_at = excluded.updated_at
+          updated_at = excluded.updated_at,
+          menu_profile = excluded.menu_profile
       `).run(
         record.id, record.name, record.neighborhood, record.address,
         record.latitude, record.longitude, record.menuURL, record.checkURL,
-        record.extractionMode, now, record.coverageScope, now
+        record.extractionMode, now, record.coverageScope, now, record.menuProfile
       );
       this.database.exec("COMMIT");
       return { created: !existed };
@@ -501,10 +508,18 @@ export class SQLiteStore {
   }
   async ping() { this.database.prepare("SELECT 1").get(); }
 
+  async getCheckTarget(id) {
+    return this.database.prepare(`
+      SELECT id, name, COALESCE(check_url, menu_url) AS check_url, source_hash,
+             extraction_mode, menu_profile
+      FROM restaurants WHERE id = ?
+    `).get(id) ?? null;
+  }
+
   async listCheckTargets() {
     return this.database.prepare(`
       SELECT id, name, COALESCE(check_url, menu_url) AS check_url, source_hash,
-             extraction_mode
+             extraction_mode, menu_profile
       FROM restaurants ORDER BY name COLLATE NOCASE
     `).all();
   }

@@ -1,6 +1,7 @@
 import { createServer } from "node:http";
 import { timingSafeEqual } from "node:crypto";
 import { validateMenuItems, validateRestaurant, COVERAGE_STATUSES } from "./catalog-input.js";
+import { proposeMenu } from "./proposals.js";
 import { checkMenus } from "./checker.js";
 import { announceCheckResults, createNotifier } from "./notifier.js";
 import { openStore } from "./store.js";
@@ -29,6 +30,7 @@ const server = createServer(async (request, response) => {
 
 const MAX_BODY_BYTES = 1_000_000;
 const RECONCILE_PATH = /^\/internal\/restaurants\/([0-9a-f-]{36})\/reconcile$/i;
+const PROPOSE_PATH = /^\/internal\/restaurants\/([0-9a-f-]{36})\/propose$/i;
 
 async function handleRequest(request, response) {
   const url = new URL(request.url, `http://${request.headers.host ?? `${host}:${port}`}`);
@@ -69,6 +71,14 @@ async function handleRequest(request, response) {
         restaurant: await store.getRestaurant(restaurant.value.id),
         created
       }, false);
+    }
+
+    const propose = request.method === "POST" && url.pathname.match(PROPOSE_PATH);
+    if (propose) {
+      const target = await store.getCheckTarget(propose[1].toLowerCase());
+      if (!target) return json(response, 404, { error: "Unknown restaurant" }, false);
+      // Extraction proposes; only a tier configured as publishable writes anything.
+      return json(response, 200, await proposeMenu(store, target), false);
     }
 
     const reconcile = request.method === "POST" && url.pathname.match(RECONCILE_PATH);

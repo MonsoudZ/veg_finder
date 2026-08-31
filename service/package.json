@@ -7,7 +7,8 @@
     "migrate": "node src/migrate.js",
     "seed": "node src/seed.js",
     "check": "node src/check-menus.js",
-    "test": "node --test"
+    "test": "node --test",
+    "propose": "node src/propose-menus.js"
   },
   "engines": {
     "node": ">=22.5"

@@ -36,6 +36,18 @@ export async function checkMenus(
   return results;
 }
 
+// Shared with the extraction pipeline so both reach an official source the same
+// way, including the headless-browser path for JavaScript ordering pages.
+export async function fetchSource(
+  restaurant, { fetchImpl = fetch, browserFetchImpl = loadBrowserSource } = {}
+) {
+  const url = restaurant.check_url ?? restaurant.checkURL ?? restaurant.menu_url ?? restaurant.menuURL;
+  if (!url) throw new Error("Restaurant has no source URL");
+  return restaurant.extraction_mode === "browser_required"
+    ? browserFetchImpl(url)
+    : loadHTTPSource(fetchImpl, url);
+}
+
 async function loadHTTPSource(fetchImpl, url) {
   const response = await fetchImpl(url, {
     headers: { "user-agent": "VegFinderMenuChecker/0.1 (+menu verification)" },

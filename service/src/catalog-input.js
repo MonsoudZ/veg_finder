@@ -7,6 +7,7 @@ export const DIETARY_STATUSES = [
 ];
 export const COVERAGE_STATUSES = ["Complete", "Needs review"];
 export const EXTRACTION_MODES = ["change_detection", "browser_required"];
+export const MENU_PROFILES = ["unknown", "fully_vegan", "manual"];
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
@@ -26,6 +27,9 @@ export function validateRestaurant(input) {
     : requireHTTPURL(input.checkURL, "checkURL", errors);
   value.extractionMode = optionalEnum(
     input?.extractionMode, "extractionMode", EXTRACTION_MODES, "change_detection", errors
+  );
+  value.menuProfile = optionalEnum(
+    input?.menuProfile, "menuProfile", MENU_PROFILES, "unknown", errors
   );
   value.coverageScope = typeof input?.coverageScope === "string" && input.coverageScope.trim()
     ? input.coverageScope.trim()

@@ -40,7 +40,9 @@ empty database and backs the tests; it is not where ongoing edits belong.
 Both endpoints require `Authorization: Bearer $INTERNAL_API_TOKEN` and return 404
 without it, so an unauthenticated caller cannot tell they exist.
 
-`POST /internal/restaurants` creates or updates a restaurant. A new one is
+`POST /internal/restaurants` creates or updates a restaurant. `menuProfile` is the
+operator's assertion about the whole menu — `unknown` (default), `fully_vegan`, or
+`manual`; see tiered extraction above. A new one is
 deliberately unaudited: it is stored with coverage `Needs review`, no published
 items, and a place in the review queue. It cannot appear in the app until its menu
 has been reconciled.
@@ -73,6 +75,46 @@ not, and every item needs `sourceEvidence`. Invalid input returns 422 listing ea
 problem.
 
 Production uses PostgreSQL whenever `DATABASE_URL` is set. With no `DATABASE_URL`, the service uses SQLite for local development and tests. PostgreSQL retains item versions, source snapshots, and every check run; SQLite implements the same contract for zero-setup development.
+
+## Tiered extraction
+
+Auditing every menu by hand does not scale past a few hundred restaurants, so
+`npm run propose` drafts menus from official sources. It only ever restates a
+claim the restaurant already makes. Two things count as such a claim:
+
+| Tier | The restaurant's claim | Publishes without review |
+| --- | --- | --- |
+| `fully_vegan` | The whole menu is vegan | Yes, by default |
+| `labelled_menu` | The menu marks a dish, *and* publishes a legend defining that mark | Only if enabled |
+| `manual` | Neither — a person must audit it | Never |
+
+Nothing is inferred from a dish name or its ingredients. "Veggie Burger",
+"garden salad" and "contains no meat" are not evidence. A marker such as `(V)` is
+interpreted **only** when the same page defines it, because `V` means vegan on
+some menus and vegetarian on others; a menu that defines one symbol two ways
+defines nothing usable. Every proposed item carries the exact source line as its
+evidence, so a reviewer can check it without refetching.
+
+Extraction never proposes a `Can be made ...` status. Those dishes need a specific
+instruction to the diner, and inventing that instruction is exactly the inference
+this pipeline refuses to make, so they stay human work.
+
+`AUTO_PUBLISH_TIERS` controls what may publish unreviewed. It defaults to
+`fully_vegan`, which is safe because an operator — not the extractor — records a
+restaurant as entirely vegan by setting `menuProfile` on it, leaving no per-dish
+judgement to make. Setting `menuProfile` to `manual` opts a restaurant out of
+automated extraction entirely. Set `AUTO_PUBLISH_TIERS=` to make everything a
+proposal.
+
+```sh
+npm run propose                                        # draft menus for everything in the queue
+AUTO_PUBLISH_TIERS=fully_vegan,labelled_menu npm run propose
+```
+
+`POST /internal/restaurants/:id/propose` runs the same extraction for one
+restaurant and returns the tier, the reasons, and the drafted items. When the tier
+is not configured to publish, nothing is written and the response is a draft to
+review and send back to `/reconcile`.
 
 ## Verification workflow
 
