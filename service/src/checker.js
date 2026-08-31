@@ -57,6 +57,21 @@ export async function checkMenus(
           : `[${fetched.contentType ?? "binary"}, ${source.length} bytes, fingerprinted whole]`,
         changed
       });
+      // A PDF or image menu fingerprints like any other source, so an edit to it
+      // is caught. What no fingerprint can do is notice that a dish was already
+      // wrong, and nothing can read this source to find out — its items were
+      // transcribed by a person. So it carries the offline clock too, and is the
+      // one source type that gets both checks rather than one or the other.
+      const stale = !changed && restaurant.verification_method === "menu_document"
+        ? overdue(restaurant, offlineReviewDays, now())
+        : null;
+      if (stale) {
+        await store.recordCheckFailure({ restaurantID: restaurant.id, checkedAt, error: stale });
+        logger.log(`REVIEW DUE ${restaurant.name}: ${stale}`);
+        results.push({ id: restaurant.id, name: restaurant.name, status: "review_due", error: stale });
+        continue;
+      }
+
       logger.log(`${changed ? "CHANGED" : "OK"} ${restaurant.name}`);
       results.push({ id: restaurant.id, name: restaurant.name, status: changed ? "changed" : "ok" });
     } catch (error) {
@@ -118,8 +133,21 @@ function daysSince(timestamp, now) {
   return (now.getTime() - then.getTime()) / 86_400_000;
 }
 
+// Whether a human-transcribed record has stood long enough to be looked at
+// again. Returns the reason to re-queue it, or null while it still stands.
+function overdue(restaurant, offlineReviewDays, now) {
+  const age = daysSince(restaurant.audited_at, now);
+  if (age === null) {
+    return `Verified ${describeMethod(restaurant.verification_method)} but never audited; needs review`;
+  }
+  if (age < offlineReviewDays) return null;
+  return `Verified ${describeMethod(restaurant.verification_method)} ${Math.floor(age)} days ago; ` +
+    `re-verification due after ${offlineReviewDays} days`;
+}
+
 function describeMethod(method) {
   switch (method) {
+    case "menu_document": return "by transcribing a document menu";
     case "menu_photo": return "from a photographed menu";
     case "phone": return "by phone";
     case "in_person": return "in person";

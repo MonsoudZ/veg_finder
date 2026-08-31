@@ -33,7 +33,26 @@ for (const restaurant of drafts.restaurants) {
     continue;
   }
   try {
-    const menu = readableMenu(await fetchSource(target, {}));
+    // A document menu has no text to fetch, so its evidence is checked against
+    // the transcription a person made from it instead. That is weaker than
+    // checking a live page and is deliberately restricted to sources that could
+    // not be read any other way — otherwise a transcript would be a way to smuggle
+    // unverifiable claims past the guard for a menu that is perfectly readable.
+    // The transcription does not go stale silently: the document is still
+    // fingerprinted every cycle, so an edit to it demotes the restaurant and
+    // sends the transcription back to a person.
+    const transcribed = typeof restaurant.transcript === "string" && restaurant.transcript.trim();
+    if (transcribed && target.verification_method !== "menu_document") {
+      console.error(
+        `SKIPPED  ${restaurant.name}: a transcript is only accepted for a ` +
+        `menu_document source, and this one is "${target.verification_method}"`
+      );
+      continue;
+    }
+
+    const menu = transcribed
+      ? restaurant.transcript
+      : readableMenu(await fetchSource(target, {}));
     const verified = verifyProposals(restaurant.items, menu);
     // Saved even when empty, so a menu that has been rewritten since the drafts
     // were written clears its stale proposals rather than leaving them pending.
@@ -41,7 +60,8 @@ for (const restaurant of drafts.restaurants) {
     kept += verified.kept.length;
     dropped += verified.dropped.length;
     console.log(
-      `${restaurant.name}: ${verified.kept.length} verified against the live page` +
+      `${restaurant.name}: ${verified.kept.length} verified against ` +
+      (transcribed ? "a recorded transcription" : "the live page") +
       (verified.dropped.length ? `, ${verified.dropped.length} discarded` : "")
     );
     for (const entry of verified.dropped) {

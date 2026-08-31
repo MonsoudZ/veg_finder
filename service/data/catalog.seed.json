@@ -151,7 +151,7 @@
     },
     {
       "id":"00000000-0000-4000-8000-000000000008","name":"Hudson Hill","neighborhood":"Capitol Hill","address":"619 E 13th Ave, Denver, CO 80203","latitude":39.73673,"longitude":-104.9793,
-      "verifiedAt":"2026-08-30T00:00:00Z","auditedAt":"2026-08-30T00:00:00Z","coverageStatus":"Complete","coverageScope":"All named dishes explicitly labeled vegan on the official ordering menu; beverages and add-ons excluded.","menuURL":"https://order.toasttab.com/online/hudson-hill","checkURL":"https://www.hudsonhilldenver.com/s/Hudson-Hill-Blue-Menu-6_26.pdf","extractionMode":"change_detection",
+      "verifiedAt":"2026-08-30T00:00:00Z","auditedAt":"2026-08-30T00:00:00Z","coverageStatus":"Complete","coverageScope":"All named dishes explicitly labeled vegan on the official ordering menu; beverages and add-ons excluded.","menuURL":"https://order.toasttab.com/online/hudson-hill","checkURL":"https://www.hudsonhilldenver.com/s/Hudson-Hill-Blue-Menu-6_26.pdf","verificationMethod":"menu_document","extractionMode":"change_detection",
       "menuItems":[{"id":"10000008-0000-4000-8000-000000000001","name":"La Foglia Vegan Sandwich","description":"Vegan chickpea salad and Sichuan cucumbers on baguette; stock varies.","price":"$14","dietaryStatus":"Vegan","sourceEvidence":"Explicitly labeled vegan"}]
     },
     {

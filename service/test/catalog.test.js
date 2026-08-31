@@ -215,3 +215,39 @@ test("an HTML menu is still normalized before fingerprinting", async () => {
   );
   await store.close();
 });
+
+test("the seed carries verification method and menu profile", async () => {
+  // These are how a restaurant is routed: menu_profile decides which extraction
+  // tier may touch it, verification_method decides how it is re-checked. The
+  // seed importer used to drop both, so they existed only in whichever database
+  // an operator had edited by hand and a fresh deploy silently lost them.
+  const store = openTemporaryStore("seed-routing");
+  await store.importSeed();
+
+  const hudson = store.database
+    .prepare("SELECT verification_method, check_url FROM restaurants WHERE name = 'Hudson Hill'")
+    .get();
+  assert.equal(hudson.verification_method, "menu_document");
+  assert.ok(hudson.check_url, "a document menu keeps its URL so it can still be fingerprinted");
+
+  // Everything the seed does not mark falls back to the same defaults it always had.
+  const others = store.database.prepare(`
+    SELECT COUNT(*) AS count FROM restaurants
+    WHERE name <> 'Hudson Hill' AND verification_method <> 'official_url'
+  `).get();
+  assert.equal(others.count, 0);
+  assert.equal(
+    store.database.prepare("SELECT COUNT(*) AS count FROM restaurants WHERE menu_profile <> 'unknown'").get().count,
+    0
+  );
+  await store.close();
+});
+
+test("the seed records where a whole-menu claim is published", async () => {
+  const store = openTemporaryStore("seed-claim");
+  await store.importSeed();
+  const cakeBar = store.database
+    .prepare("SELECT claim_url FROM restaurants WHERE name = 'The Cake Bar'").get();
+  assert.equal(cakeBar.claim_url, "https://www.thecakebardenver.com/");
+  await store.close();
+});

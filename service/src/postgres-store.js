@@ -66,13 +66,17 @@ export class PostgresStore {
           INSERT INTO restaurants (
             id, name, neighborhood, address, latitude, longitude, menu_url, check_url,
             claim_url, extraction_mode, verified_at, coverage_status, coverage_scope,
-            audited_at, review_required, updated_at
-          ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,FALSE,$14)
+            audited_at, review_required, updated_at, menu_profile, verification_method
+          ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,FALSE,$14,$15,$16)
           ON CONFLICT(id) DO UPDATE SET
             name=EXCLUDED.name, neighborhood=EXCLUDED.neighborhood, address=EXCLUDED.address,
             latitude=EXCLUDED.latitude, longitude=EXCLUDED.longitude,
             menu_url=EXCLUDED.menu_url, check_url=EXCLUDED.check_url,
             claim_url=EXCLUDED.claim_url,
+            -- The seed is the operator's declared catalog, so it is authoritative
+            -- for these the same way it already is for the address and menu URL.
+            menu_profile=EXCLUDED.menu_profile,
+            verification_method=EXCLUDED.verification_method,
             extraction_mode=EXCLUDED.extraction_mode, verified_at=EXCLUDED.verified_at,
             coverage_scope=EXCLUDED.coverage_scope, audited_at=EXCLUDED.audited_at,
             updated_at=EXCLUDED.updated_at,
@@ -103,7 +107,8 @@ export class PostgresStore {
           restaurant.checkURL ?? null, restaurant.claimURL ?? null,
           restaurant.extractionMode ?? "change_detection",
           restaurant.verifiedAt, restaurant.coverageStatus, restaurant.coverageScope,
-          restaurant.auditedAt
+          restaurant.auditedAt, restaurant.menuProfile ?? "unknown",
+          restaurant.verificationMethod ?? "official_url"
         ]);
 
         await publishMenu(client, restaurant.id, restaurant.menuItems, restaurant.auditedAt);

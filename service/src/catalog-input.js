@@ -11,7 +11,8 @@ export const MENU_PROFILES = ["unknown", "fully_vegan", "fully_vegetarian", "man
 // Only 'official_url' can be fingerprinted automatically. The others record a
 // human observation — a photographed menu, a phone call, a visit — which the
 // checker cannot re-verify, so those restaurants age out instead.
-export const VERIFICATION_METHODS = ["official_url", "menu_photo", "phone", "in_person"];
+export const VERIFICATION_METHODS =
+  ["official_url", "menu_document", "menu_photo", "phone", "in_person"];
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 

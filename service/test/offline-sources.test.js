@@ -181,3 +181,91 @@ test("a developer database from before these columns existed still opens", async
   );
   await store.close();
 });
+
+// A PDF or image menu is the one source that gets both checks. Its bytes
+// fingerprint, so an edit is caught like any other menu; but nothing can read
+// its dishes, so the items were transcribed by a person and that transcription
+// needs re-checking on a clock like any other human observation.
+function documentMenuRestaurant(overrides = {}) {
+  return {
+    id: "bbbbbbbb-0000-4000-8000-000000000002",
+    name: "Hudson Hill",
+    neighborhood: "Capitol Hill",
+    address: "619 E 13th Ave",
+    latitude: 39.73673,
+    longitude: -104.9793,
+    menuURL: "https://example.com/order",
+    checkURL: "https://example.com/menu.pdf",
+    verificationMethod: "menu_document",
+    ...overrides
+  };
+}
+
+const pdf = (price) => async () => new Response(
+  `%PDF-1.4 stream Chickpea Salad ${price} endstream`,
+  { headers: { "content-type": "application/pdf" } }
+);
+
+async function storeWith(label, input) {
+  const store = freshStore(label);
+  const validated = validateRestaurant(input);
+  assert.equal(validated.valid, true, validated.errors.join("; "));
+  await store.upsertRestaurant(validated.value);
+  return store;
+}
+
+test("a document menu is still fingerprinted, so an edit to it is caught", async () => {
+  const store = await storeWith("doc-fingerprint", documentMenuRestaurant());
+  const id = "bbbbbbbb-0000-4000-8000-000000000002";
+  // Audited today, so the age clock cannot be what raises a review here.
+  store.database.prepare("UPDATE restaurants SET audited_at = ? WHERE id = ?")
+    .run(new Date().toISOString(), id);
+
+  await checkMenus(store, { fetchImpl: pdf("14"), logger: quiet });
+  const [unchanged] = await checkMenus(store, { fetchImpl: pdf("14"), logger: quiet });
+  assert.equal(unchanged.status, "ok", "an unedited document with a fresh audit is fine");
+
+  const [changed] = await checkMenus(store, { fetchImpl: pdf("16"), logger: quiet });
+  assert.equal(changed.status, "changed", "a repriced PDF must still be noticed");
+  await store.close();
+});
+
+test("a document menu is re-queued when its transcription goes stale", async () => {
+  const store = await storeWith("doc-clock", documentMenuRestaurant());
+  const id = "bbbbbbbb-0000-4000-8000-000000000002";
+  await checkMenus(store, { fetchImpl: pdf("14"), logger: quiet });
+
+  // Same bytes, so no fingerprint change — but the person who read this menu
+  // did so 200 days ago, and no fingerprint can tell you a dish was already
+  // wrong when it was transcribed.
+  const old = new Date(Date.now() - 200 * 86_400_000).toISOString();
+  store.database.prepare("UPDATE restaurants SET audited_at = ? WHERE id = ?").run(old, id);
+
+  const [result] = await checkMenus(store, {
+    fetchImpl: pdf("14"), logger: quiet, offlineReviewDays: 90
+  });
+  assert.equal(result.status, "review_due");
+  assert.match(result.error, /transcribing a document menu/);
+  assert.match(result.error, /re-verification due after 90 days/);
+  assert.equal((await store.getReviewQueue()).length, 1);
+  await store.close();
+});
+
+test("an ordinary web menu never picks up the transcription clock", async () => {
+  // Only menu_document carries both checks. A fetchable HTML menu is re-read on
+  // every cycle, so ageing it as well would re-queue a restaurant that nothing
+  // is actually wrong with.
+  const store = await storeWith("html-no-clock", documentMenuRestaurant({
+    checkURL: "https://example.com/menu", verificationMethod: "official_url"
+  }));
+  const id = "bbbbbbbb-0000-4000-8000-000000000002";
+  const html = async () => new Response("<main>Chickpea Salad 14</main>");
+  await checkMenus(store, { fetchImpl: html, logger: quiet });
+
+  const old = new Date(Date.now() - 200 * 86_400_000).toISOString();
+  store.database.prepare("UPDATE restaurants SET audited_at = ? WHERE id = ?").run(old, id);
+
+  const [result] = await checkMenus(store, { fetchImpl: html, logger: quiet, offlineReviewDays: 90 });
+  assert.equal(result.status, "ok");
+  await store.close();
+});

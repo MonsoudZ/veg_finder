@@ -263,8 +263,8 @@ export function importSeed(database, seedPath = defaultSeedPath) {
       INSERT INTO restaurants (
         id, name, neighborhood, address, latitude, longitude, menu_url, check_url,
         claim_url, extraction_mode, verified_at, coverage_status, coverage_scope,
-        audited_at, review_required, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?)
+        audited_at, review_required, updated_at, menu_profile, verification_method
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?)
       ON CONFLICT(id) DO UPDATE SET
         name = excluded.name,
         neighborhood = excluded.neighborhood,
@@ -275,6 +275,10 @@ export function importSeed(database, seedPath = defaultSeedPath) {
         check_url = excluded.check_url,
         claim_url = excluded.claim_url,
         extraction_mode = excluded.extraction_mode,
+        -- The seed is the operator's declared catalog, so it is authoritative
+        -- for these the same way it already is for the address and the menu URL.
+        menu_profile = excluded.menu_profile,
+        verification_method = excluded.verification_method,
         verified_at = excluded.verified_at,
         coverage_scope = excluded.coverage_scope,
         audited_at = excluded.audited_at,
@@ -317,7 +321,9 @@ export function importSeed(database, seedPath = defaultSeedPath) {
         restaurant.coverageStatus,
         restaurant.coverageScope,
         canonicalTimestamp(restaurant.auditedAt),
-        canonicalTimestamp(restaurant.auditedAt)
+        canonicalTimestamp(restaurant.auditedAt),
+        restaurant.menuProfile ?? "unknown",
+        restaurant.verificationMethod ?? "official_url"
       );
       publishMenu(
         database, restaurant.id, restaurant.menuItems, canonicalTimestamp(restaurant.auditedAt)

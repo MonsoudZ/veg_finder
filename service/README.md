@@ -51,9 +51,24 @@ They are entered with `verificationMethod` instead of a `menuURL`:
 | `verificationMethod` | Meaning | Checked how |
 | --- | --- | --- |
 | `official_url` (default) | A menu page we can fetch | Fingerprinted every cycle |
+| `menu_document` | A PDF or image menu at a URL | **Both** — fingerprinted *and* age clock |
 | `menu_photo` | Photographed menu | Age clock |
 | `phone` | Confirmed by phone | Age clock |
 | `in_person` | Confirmed on a visit | Age clock |
+
+`menu_document` is the one source that gets both checks, and it is worth being
+precise about why. Its bytes fingerprint perfectly well, so an edit to the PDF is
+caught like any other menu change. What no fingerprint can do is notice that a
+dish was already wrong when it was written down — and these items were written
+down by a person, because nothing can read them. So it carries the age clock too.
+It keeps its `checkURL`, unlike the three methods below it.
+
+Hudson Hill is the pilot's example, and it is a good argument for the category.
+Its PDF *does* publish a legend (`V - Vegan, VG - Vegetarian, GF - Gluten Free`)
+and marks about nine dishes with it, but the file has no usable text layer: the
+embedded ToUnicode map renders every `b` as `i`, so extraction reads "Bourion"
+for "Bourbon", and most prices cannot be recovered at all. A menu can be
+perfectly well labelled and still be unreadable by anything but a person.
 
 `menuURL` is required only for `official_url`. The other three record a human
 observation the checker cannot re-verify, so instead of being skipped — which
@@ -68,6 +83,11 @@ empty database and backs the tests; it is not where ongoing edits belong.
 
 Both endpoints require `Authorization: Bearer $INTERNAL_API_TOKEN` and return 404
 without it, so an unauthenticated caller cannot tell they exist.
+
+The seed is authoritative for `menuProfile` and `verificationMethod` on the
+restaurants it contains, the same way it already is for their addresses and menu
+URLs. Restaurants created through the admin API and never added to the seed are
+untouched by seeding.
 
 `POST /internal/restaurants` creates or updates a restaurant. `menuProfile` is the
 operator's assertion about the whole menu — `unknown` (default), `fully_vegan`,
@@ -194,6 +214,15 @@ publishes; it fills the review queue.
 npm run load-drafts                          # the default drafts file
 npm run load-drafts -- data/drafts/other.json
 ```
+
+A `menu_document` restaurant has no fetchable text to check quotes against, so
+its drafts may instead carry a `transcript` — the transcription a person made
+from the document — and evidence is checked against that. This is weaker than
+checking a live page, so it is refused for any other verification method;
+otherwise a transcript would be a way to smuggle unverifiable claims past the
+guard for a menu that is perfectly readable. The transcription does not go stale
+in silence: the document is still fingerprinted every cycle, so an edit to it
+demotes the restaurant and sends the transcription back to a person.
 
 ### Model-assisted drafting
 
