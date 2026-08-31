@@ -36,17 +36,25 @@ export async function checkMenus(
     }
 
     try {
-      const sourceText = restaurant.extraction_mode === "browser_required"
-        ? await browserFetchImpl(restaurant.check_url)
+      const fetched = restaurant.extraction_mode === "browser_required"
+        ? { text: await browserFetchImpl(restaurant.check_url), markup: true }
         : await loadHTTPSource(fetchImpl, restaurant.check_url);
-      const source = normalize(sourceText);
+      // normalize() strips HTML tags. Run against a PDF it deletes almost
+      // everything — a 350KB menu collapsed to a few hundred characters of
+      // binary residue, which is far too weak to notice a menu change. Non-markup
+      // sources are fingerprinted whole instead.
+      const source = fetched.markup ? normalize(fetched.text) : fetched.text;
       const hash = createHash("sha256").update(source).digest("hex");
       const changed = Boolean(restaurant.source_hash && restaurant.source_hash !== hash);
       await store.recordCheckSuccess({
         restaurantID: restaurant.id,
         checkedAt,
         hash,
-        normalizedSource: source,
+        // A binary source has no readable snapshot worth keeping; record what it
+        // was so a reviewer knows why, rather than storing megabytes of residue.
+        normalizedSource: fetched.markup
+          ? source
+          : `[${fetched.contentType ?? "binary"}, ${source.length} bytes, fingerprinted whole]`,
         changed
       });
       logger.log(`${changed ? "CHANGED" : "OK"} ${restaurant.name}`);
@@ -68,9 +76,10 @@ export async function fetchSource(
 ) {
   const url = restaurant.check_url ?? restaurant.checkURL ?? restaurant.menu_url ?? restaurant.menuURL;
   if (!url) throw new Error("Restaurant has no source URL");
-  return restaurant.extraction_mode === "browser_required"
-    ? browserFetchImpl(url)
-    : loadHTTPSource(fetchImpl, url);
+  if (restaurant.extraction_mode === "browser_required") return browserFetchImpl(url);
+  // Extraction wants the document itself; only the fingerprinting path cares
+  // whether it was markup.
+  return (await loadHTTPSource(fetchImpl, url)).text;
 }
 
 async function loadHTTPSource(fetchImpl, url) {
@@ -79,7 +88,13 @@ async function loadHTTPSource(fetchImpl, url) {
     signal: AbortSignal.timeout(20_000)
   });
   if (!response.ok) throw new Error(`HTTP ${response.status}`);
-  return response.text();
+  const contentType = response.headers?.get?.("content-type") ?? "";
+  return {
+    text: await response.text(),
+    contentType,
+    // A PDF or image menu is a legitimate source; it just is not markup.
+    markup: contentType === "" || /html|xml|text\/plain/i.test(contentType)
+  };
 }
 
 function normalize(source) {

@@ -158,3 +158,60 @@ test("a fresh audit clears a recorded check failure", async () => {
   assert.equal(remaining.count, 0);
   await store.close();
 });
+
+test("a PDF menu is fingerprinted whole rather than HTML-stripped", async () => {
+  const store = openTemporaryStore("pdf-source");
+  await store.importSeed();
+  const logger = { log() {}, error() {} };
+
+  // Two PDFs differing only in a price. Tag-stripping a PDF deletes nearly all
+  // of it, so a normalized fingerprint would miss the change entirely.
+  const pdf = (price) =>
+    new Response(`%PDF-1.4\n<</Type/Catalog>>\nstream\nAvocado Toast ${price}\nendstream`, {
+      headers: { "content-type": "application/pdf" }
+    });
+
+  await checkMenus(store, { fetchImpl: async () => pdf("$12"), logger });
+  const first = store.database.prepare("SELECT source_hash FROM restaurants LIMIT 1").get().source_hash;
+
+  await checkMenus(store, { fetchImpl: async () => pdf("$14"), logger });
+  const second = store.database.prepare("SELECT source_hash FROM restaurants LIMIT 1").get().source_hash;
+
+  assert.notEqual(second, first, "a changed PDF menu must change the fingerprint");
+  assert.equal(
+    store.database.prepare("SELECT COUNT(*) AS count FROM restaurants WHERE review_required = 1").get().count,
+    10,
+    "and must send the restaurant back for review"
+  );
+
+  const snapshot = store.database.prepare(
+    "SELECT normalized_source FROM menu_source_snapshots LIMIT 1"
+  ).get().normalized_source;
+  assert.match(snapshot, /application\/pdf.*fingerprinted whole/, "binary sources record what they were");
+  await store.close();
+});
+
+test("an HTML menu is still normalized before fingerprinting", async () => {
+  const store = openTemporaryStore("html-source");
+  await store.importSeed();
+  const logger = { log() {}, error() {} };
+
+  // Same visible menu, different markup — normalizing must treat these as equal.
+  await checkMenus(store, {
+    fetchImpl: async () => new Response("<div><p>Avocado Toast $12</p></div>",
+      { headers: { "content-type": "text/html" } }),
+    logger
+  });
+  await checkMenus(store, {
+    fetchImpl: async () => new Response("<section><span>Avocado  Toast  $12</span></section>",
+      { headers: { "content-type": "text/html; charset=utf-8" } }),
+    logger
+  });
+
+  assert.equal(
+    store.database.prepare("SELECT COUNT(*) AS count FROM restaurants WHERE review_required = 1").get().count,
+    0,
+    "a markup-only change must not be reported as a menu change"
+  );
+  await store.close();
+});
