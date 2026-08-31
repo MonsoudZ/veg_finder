@@ -49,6 +49,7 @@ export async function proposeMenu(store, restaurant, {
     const drafted = await proposeWithModel(html, {
       restaurantName: restaurant.name, client: modelClient, model: modelName
     });
+    await store.saveProposals(restaurant.id, { tier: LLM_TIER, items: drafted.items });
     return {
       restaurantID: restaurant.id,
       name: restaurant.name,
@@ -93,6 +94,10 @@ export async function proposeMenu(store, restaurant, {
   };
 
   const publishable = validated.valid && result.items.length > 0 && tiers.has(extraction.tier);
+  if (!publishable && result.items.length > 0) {
+    // Held back rather than discarded: a reviewer decides on these later.
+    await store.saveProposals(restaurant.id, { tier: extraction.tier, items: result.items });
+  }
   if (!publishable) {
     if (!tiers.has(extraction.tier)) {
       result.reasons.push(`Tier "${extraction.tier}" is not configured to publish without review`);

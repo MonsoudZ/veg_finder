@@ -285,6 +285,63 @@ export class PostgresStore {
     return this.getRestaurant(id);
   }
 
+  async saveProposals(restaurantID, { tier, items, proposedAt = new Date().toISOString() }) {
+    const client = await this.pool.connect();
+    try {
+      await client.query("BEGIN");
+      await client.query(
+        "DELETE FROM menu_item_proposals WHERE restaurant_id=$1 AND status='pending'", [restaurantID]
+      );
+      for (const [position, item] of items.entries()) {
+        await client.query(`
+          INSERT INTO menu_item_proposals (id, restaurant_id, proposed_at, tier, position, item, status)
+          VALUES ($1,$2,$3,$4,$5,$6::jsonb,'pending')
+        `, [randomUUID(), restaurantID, proposedAt, tier, position, JSON.stringify(item)]);
+      }
+      await client.query("COMMIT");
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally {
+      client.release();
+    }
+    return { saved: items.length };
+  }
+
+  async listProposals({ restaurantID, status } = {}) {
+    const conditions = ["TRUE"];
+    const parameters = [];
+    if (restaurantID) conditions.push(`p.restaurant_id = $${parameters.push(restaurantID)}`);
+    if (status) conditions.push(`p.status = $${parameters.push(status)}`);
+    const { rows } = await this.pool.query(`
+      SELECT p.id, p.restaurant_id, p.proposed_at, p.tier, p.item, p.status, p.decided_at,
+             p.note, r.name AS restaurant_name
+      FROM menu_item_proposals p JOIN restaurants r ON r.id = p.restaurant_id
+      WHERE ${conditions.join(" AND ")}
+      ORDER BY r.name, p.proposed_at, p.position, p.id
+    `, parameters);
+    return rows.map((row) => ({
+      id: row.id,
+      restaurantID: row.restaurant_id,
+      restaurantName: row.restaurant_name,
+      proposedAt: iso(row.proposed_at),
+      tier: row.tier,
+      status: row.status,
+      decidedAt: iso(row.decided_at),
+      note: row.note,
+      // jsonb comes back parsed already.
+      item: typeof row.item === "string" ? JSON.parse(row.item) : row.item
+    }));
+  }
+
+  async decideProposal(id, { status, note = null }) {
+    const { rowCount } = await this.pool.query(`
+      UPDATE menu_item_proposals SET status=$1, note=$2, decided_at=NOW()
+      WHERE id=$3 AND status='pending'
+    `, [status, note, id]);
+    return rowCount > 0;
+  }
+
   async getCheckTarget(id) {
     const { rows } = await this.pool.query(`
       SELECT id, name, COALESCE(check_url, menu_url) AS check_url, source_hash,

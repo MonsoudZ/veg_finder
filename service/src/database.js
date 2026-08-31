@@ -75,6 +75,19 @@ function migrate(database) {
       UNIQUE(restaurant_id, source_hash)
     );
 
+    CREATE TABLE IF NOT EXISTS menu_item_proposals (
+      id TEXT PRIMARY KEY,
+      restaurant_id TEXT NOT NULL REFERENCES restaurants(id) ON DELETE CASCADE,
+      proposed_at TEXT NOT NULL,
+      tier TEXT NOT NULL,
+      position INTEGER NOT NULL DEFAULT 0,
+      item TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'pending'
+        CHECK (status IN ('pending', 'accepted', 'rejected')),
+      decided_at TEXT,
+      note TEXT
+    );
+
     CREATE TABLE IF NOT EXISTS menu_item_versions (
       id TEXT PRIMARY KEY,
       menu_item_id TEXT NOT NULL,
@@ -147,6 +160,10 @@ function migrate(database) {
     CREATE INDEX IF NOT EXISTS restaurants_updated_at ON restaurants(updated_at, id);
     CREATE INDEX IF NOT EXISTS restaurants_name_id ON restaurants(name, id);
     CREATE INDEX IF NOT EXISTS restaurants_location ON restaurants(latitude, longitude);
+    CREATE INDEX IF NOT EXISTS menu_item_proposals_restaurant
+      ON menu_item_proposals(restaurant_id, status);
+    CREATE INDEX IF NOT EXISTS menu_item_proposals_pending
+      ON menu_item_proposals(status, proposed_at);
   `);
 }
 
@@ -305,6 +322,20 @@ export function importSeed(database, seedPath = defaultSeedPath) {
     database.exec("ROLLBACK");
     throw error;
   }
+}
+
+export function proposalRow(row) {
+  return {
+    id: row.id,
+    restaurantID: row.restaurant_id,
+    restaurantName: row.restaurant_name,
+    proposedAt: row.proposed_at,
+    tier: row.tier,
+    status: row.status,
+    decidedAt: row.decided_at,
+    note: row.note,
+    item: JSON.parse(row.item)
+  };
 }
 
 export function publicRestaurant(row, items) {
@@ -538,6 +569,51 @@ export class SQLiteStore {
     return this.getRestaurant(id);
   }
   async ping() { this.database.prepare("SELECT 1").get(); }
+
+  // A fresh draft supersedes whatever was still pending for that restaurant;
+  // decisions already made are history and are left alone.
+  async saveProposals(restaurantID, { tier, items, proposedAt = new Date().toISOString() }) {
+    this.database.exec("BEGIN IMMEDIATE");
+    try {
+      this.database.prepare(
+        "DELETE FROM menu_item_proposals WHERE restaurant_id = ? AND status = 'pending'"
+      ).run(restaurantID);
+      const insert = this.database.prepare(`
+        INSERT INTO menu_item_proposals (id, restaurant_id, proposed_at, tier, position, item, status)
+        VALUES (?, ?, ?, ?, ?, ?, 'pending')
+      `);
+      items.forEach((item, position) => {
+        insert.run(randomUUID(), restaurantID, proposedAt, tier, position, JSON.stringify(item));
+      });
+      this.database.exec("COMMIT");
+    } catch (error) {
+      this.database.exec("ROLLBACK");
+      throw error;
+    }
+    return { saved: items.length };
+  }
+
+  async listProposals({ restaurantID, status } = {}) {
+    const where = ["1 = 1"];
+    const parameters = [];
+    if (restaurantID) { where.push("p.restaurant_id = ?"); parameters.push(restaurantID); }
+    if (status) { where.push("p.status = ?"); parameters.push(status); }
+    return this.database.prepare(`
+      SELECT p.id, p.restaurant_id, p.proposed_at, p.tier, p.item, p.status, p.decided_at,
+             p.note, r.name AS restaurant_name
+      FROM menu_item_proposals p JOIN restaurants r ON r.id = p.restaurant_id
+      WHERE ${where.join(" AND ")}
+      ORDER BY r.name COLLATE NOCASE, p.proposed_at, p.position, p.id
+    `).all(...parameters).map(proposalRow);
+  }
+
+  async decideProposal(id, { status, note = null }) {
+    const result = this.database.prepare(`
+      UPDATE menu_item_proposals SET status = ?, note = ?, decided_at = ?
+      WHERE id = ? AND status = 'pending'
+    `).run(status, note, new Date().toISOString(), id);
+    return result.changes > 0;
+  }
 
   async getCheckTarget(id) {
     return this.database.prepare(`

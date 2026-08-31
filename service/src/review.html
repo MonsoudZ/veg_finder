@@ -1,0 +1,275 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>VegFinder — menu review</title>
+<style>
+  :root {
+    --bg:#f6f7f5; --panel:#fff; --line:#dfe2dc; --ink:#1d2420; --muted:#6a736c;
+    --vegan:#1f7a3f; --veg:#a8620d; --warn:#b3341c; --accent:#1f7a3f;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#141715; --panel:#1c201d; --line:#2e332f; --ink:#e8ece8; --muted:#9aa39c;
+            --vegan:#5fd08a; --veg:#e0a355; --warn:#f08a72; --accent:#5fd08a; }
+  }
+  * { box-sizing:border-box }
+  body { margin:0; background:var(--bg); color:var(--ink); font:15px/1.55 ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,sans-serif }
+  header { padding:14px 20px; border-bottom:1px solid var(--line); display:flex; gap:14px; align-items:center; flex-wrap:wrap }
+  h1 { font-size:16px; margin:0; font-weight:650 }
+  .muted { color:var(--muted) }
+  main { display:grid; grid-template-columns:300px 1fr; gap:0; min-height:calc(100vh - 56px) }
+  @media (max-width:820px) { main { grid-template-columns:1fr } }
+  #queue { border-right:1px solid var(--line); padding:14px; overflow:auto }
+  #work { padding:18px 22px; overflow:auto }
+  button { font:inherit; border:1px solid var(--line); background:var(--panel); color:var(--ink);
+           border-radius:7px; padding:5px 11px; cursor:pointer }
+  button:hover { border-color:var(--accent) }
+  button[disabled] { opacity:.45; cursor:default }
+  button.primary { background:var(--accent); border-color:var(--accent); color:#fff; font-weight:600 }
+  input[type=text],input[type=password] { font:inherit; padding:7px 10px; border:1px solid var(--line);
+           border-radius:7px; background:var(--panel); color:var(--ink); min-width:260px }
+  .row { display:flex; gap:9px; align-items:center; flex-wrap:wrap }
+  .qitem { width:100%; text-align:left; margin-bottom:6px; padding:9px 11px; line-height:1.35 }
+  .qitem.on { border-color:var(--accent); box-shadow:inset 3px 0 0 var(--accent) }
+  .card { background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:13px 15px; margin-bottom:9px }
+  .card.rejected { opacity:.5 }
+  .card.accepted { border-color:var(--accent) }
+  .tag { font-size:11px; font-weight:700; letter-spacing:.03em; padding:2px 8px; border-radius:999px;
+         border:1px solid currentColor; white-space:nowrap }
+  .vegan { color:var(--vegan) } .veg { color:var(--veg) } .warn { color:var(--warn) }
+  blockquote { margin:9px 0 0; padding:8px 12px; border-left:3px solid var(--line);
+               background:var(--bg); border-radius:0 6px 6px 0; font-size:13.5px; color:var(--muted) }
+  h2 { font-size:14px; text-transform:uppercase; letter-spacing:.06em; color:var(--muted); margin:22px 0 9px }
+  h2:first-child { margin-top:0 }
+  #toast { position:fixed; bottom:18px; left:50%; transform:translateX(-50%); background:var(--ink);
+           color:var(--bg); padding:9px 16px; border-radius:8px; opacity:0; transition:opacity .2s; pointer-events:none }
+  #toast.on { opacity:1 }
+  label.keep { display:flex; gap:8px; align-items:flex-start; cursor:pointer }
+</style>
+</head>
+<body>
+<header>
+  <h1>VegFinder menu review</h1>
+  <span id="who" class="muted"></span>
+  <span style="flex:1"></span>
+  <div class="row" id="auth">
+    <input id="token" type="password" placeholder="INTERNAL_API_TOKEN" autocomplete="off">
+    <button id="connect" class="primary">Connect</button>
+  </div>
+</header>
+<main>
+  <nav id="queue"><p class="muted">Connect to load the review queue.</p></nav>
+  <section id="work"><p class="muted">Nothing selected.</p></section>
+</main>
+<div id="toast"></div>
+<script>
+const $ = (s) => document.querySelector(s);
+let token = sessionStorage.getItem("vf_token") || "";
+let current = null;          // { restaurant, proposals }
+const keep = new Set();      // published item ids the reviewer is keeping
+
+const say = (m) => { const t = $("#toast"); t.textContent = m; t.classList.add("on");
+  clearTimeout(say.t); say.t = setTimeout(() => t.classList.remove("on"), 2600); };
+
+async function api(path, options = {}) {
+  const res = await fetch(path, { ...options,
+    headers: { ...(options.headers || {}), authorization: "Bearer " + token,
+               ...(options.body ? { "content-type": "application/json" } : {}) } });
+  if (res.status === 404 && path.startsWith("/internal/")) throw new Error("Token rejected");
+  if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || ("HTTP " + res.status));
+  return res.json();
+}
+
+const STATUS_CLASS = (s) => s.includes("egan") ? "vegan" : "veg";
+const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;" }[c]));
+
+async function loadQueue() {
+  const [{ restaurants }, { proposals }] = await Promise.all([
+    api("/internal/review-queue"), api("/internal/proposals?status=pending")
+  ]);
+  const pending = {};
+  for (const p of proposals) pending[p.restaurantID] = (pending[p.restaurantID] || 0) + 1;
+  // Anything awaiting review, plus anything with drafts waiting on a decision.
+  const byID = new Map(restaurants.map((r) => [r.id, { id: r.id, name: r.name, reason: r.checkError || "Needs review" }]));
+  for (const p of proposals) if (!byID.has(p.restaurantID))
+    byID.set(p.restaurantID, { id: p.restaurantID, name: p.restaurantName, reason: "Drafts awaiting review" });
+
+  const list = [...byID.values()].sort((a, b) => a.name.localeCompare(b.name));
+  $("#who").textContent = list.length ? list.length + " awaiting review" : "queue is empty";
+  $("#queue").innerHTML = list.length ? "" : "<p class='muted'>Nothing is awaiting review.</p>";
+  for (const r of list) {
+    const b = document.createElement("button");
+    b.className = "qitem" + (current?.restaurant?.id === r.id ? " on" : "");
+    b.innerHTML = "<strong>" + esc(r.name) + "</strong><br><span class='muted' style='font-size:12.5px'>"
+      + esc(r.reason) + (pending[r.id] ? " · " + pending[r.id] + " draft(s)" : "") + "</span>";
+    b.onclick = () => open(r.id);
+    $("#queue").append(b);
+  }
+}
+
+async function open(id) {
+  const [{ restaurants }, { proposals }] = await Promise.all([
+    api("/v1/catalog?limit=500"), api("/internal/proposals?restaurantId=" + id + "&status=pending")
+  ]);
+  const restaurant = restaurants.find((r) => r.id === id);
+  if (!restaurant) return say("That restaurant is not in the catalog.");
+  current = { restaurant, proposals };
+  keep.clear();
+  for (const item of restaurant.menuItems) keep.add(item.id);
+  render();
+  loadQueue();
+}
+
+function render() {
+  const { restaurant, proposals } = current;
+  const published = restaurant.menuItems;
+  const w = $("#work");
+  w.innerHTML = "";
+
+  const head = document.createElement("div");
+  head.innerHTML = "<h2 style='margin-top:0'>" + esc(restaurant.name) + "</h2>"
+    + "<p class='muted' style='margin:-4px 0 4px'>" + esc(restaurant.coverageStatus)
+    + " · audited " + esc((restaurant.auditedAt || "").slice(0, 10))
+    + (restaurant.menuURL ? " · <a href='" + esc(restaurant.menuURL) + "' target='_blank' rel='noopener'>official menu</a>" : "")
+    + "</p>";
+  w.append(head);
+
+  // A re-draft of a menu often re-proposes dishes that are already live. Saying
+  // so stops a reviewer from weighing a decision that has already been made.
+  const live = new Set(published.map((i) => i.name.toLowerCase().replace(/[^a-z0-9]/g, "")));
+  if (proposals.length) {
+    w.insertAdjacentHTML("beforeend", "<h2>Drafts awaiting your decision (" + proposals.length + ")</h2>");
+    for (const p of proposals) w.append(proposalCard(p, live));
+  }
+
+  w.insertAdjacentHTML("beforeend", "<h2>Currently published (" + published.length + ")</h2>");
+  if (!published.length) w.insertAdjacentHTML("beforeend", "<p class='muted'>Nothing published yet.</p>");
+  for (const item of published) w.append(publishedCard(item));
+
+  const bar = document.createElement("div");
+  bar.className = "row";
+  bar.style.cssText = "margin-top:20px;padding-top:16px;border-top:1px solid var(--line)";
+  const status = document.createElement("select");
+  status.innerHTML = "<option value='Complete'>Publish as Complete</option>"
+                   + "<option value='Needs review'>Keep as Needs review</option>";
+  status.style.cssText = "font:inherit;padding:6px 9px;border-radius:7px;border:1px solid var(--line);background:var(--panel);color:var(--ink)";
+  const go = document.createElement("button");
+  go.className = "primary";
+  const publish = () => {
+    const accepted = proposals.filter((p) => p.decision === "accepted");
+    go.textContent = "Publish " + (keep.size + accepted.length) + " item(s)";
+  };
+  publish();
+  go.onclick = () => doPublish(status.value, publish);
+  bar.append(status, go);
+  const hint = document.createElement("span");
+  hint.className = "muted";
+  hint.textContent = "Publishing replaces this restaurant's menu with exactly what is kept and accepted.";
+  bar.append(hint);
+  w.append(bar);
+  render.refreshButton = publish;
+}
+
+function proposalCard(p, live = new Set()) {
+  const card = document.createElement("div");
+  card.className = "card" + (p.decision ? " " + p.decision : "");
+  const i = p.item;
+  const alreadyLive = live.has(i.name.toLowerCase().replace(/[^a-z0-9]/g, ""));
+  card.innerHTML =
+    "<div class='row'><span class='tag " + STATUS_CLASS(i.dietaryStatus) + "'>" + esc(i.dietaryStatus) + "</span>"
+    + "<strong>" + esc(i.name) + "</strong><span class='muted'>" + esc(i.price || "") + "</span>"
+    + (alreadyLive ? "<span class='tag muted' style='border-color:var(--line)'>already published</span>" : "")
+    + "<span style='flex:1'></span><span class='muted' style='font-size:12px'>" + esc(p.tier) + "</span></div>"
+    + (i.description ? "<div class='muted' style='margin-top:4px'>" + esc(i.description) + "</div>" : "")
+    + (i.modificationNote ? "<div style='margin-top:5px'><strong>Ask for:</strong> " + esc(i.modificationNote) + "</div>" : "")
+    + "<blockquote>" + esc(i.sourceEvidence || "(no evidence recorded)") + "</blockquote>";
+  const row = document.createElement("div");
+  row.className = "row";
+  row.style.marginTop = "10px";
+  for (const [label, decision] of [["Accept", "accepted"], ["Reject", "rejected"]]) {
+    const b = document.createElement("button");
+    b.textContent = label;
+    if (decision === "accepted") b.className = "primary";
+    b.onclick = async () => {
+      try {
+        await api("/internal/proposals/" + p.id + "/decision",
+          { method: "POST", body: JSON.stringify({ status: decision }) });
+        p.decision = decision;
+        card.className = "card " + decision;
+        row.querySelectorAll("button").forEach((x) => x.disabled = true);
+        render.refreshButton?.();
+        say(decision === "accepted" ? "Accepted — publish to apply it" : "Rejected");
+      } catch (e) { say(e.message); }
+    };
+    row.append(b);
+  }
+  card.append(row);
+  return card;
+}
+
+function publishedCard(item) {
+  const card = document.createElement("div");
+  card.className = "card";
+  const id = "k_" + item.id;
+  card.innerHTML =
+    "<label class='keep' for='" + id + "'><input type='checkbox' id='" + id + "' checked>"
+    + "<span><span class='tag " + STATUS_CLASS(item.dietaryStatus) + "'>" + esc(item.dietaryStatus) + "</span> "
+    + "<strong>" + esc(item.name) + "</strong> <span class='muted'>" + esc(item.price || "") + "</span>"
+    + (item.description ? "<div class='muted' style='margin-top:3px'>" + esc(item.description) + "</div>" : "")
+    + (item.modificationNote ? "<div style='margin-top:4px'><strong>Ask for:</strong> " + esc(item.modificationNote) + "</div>" : "")
+    + "</span></label>";
+  card.querySelector("input").onchange = (e) => {
+    e.target.checked ? keep.add(item.id) : keep.delete(item.id);
+    card.style.opacity = e.target.checked ? "" : ".5";
+    render.refreshButton?.();
+  };
+  return card;
+}
+
+async function doPublish(coverageStatus, refresh) {
+  const { restaurant, proposals } = current;
+  const kept = restaurant.menuItems.filter((i) => keep.has(i.id)).map((i) => ({
+    id: i.id, name: i.name, description: i.description, price: i.price,
+    dietaryStatus: i.dietaryStatus, modificationNote: i.modificationNote,
+    // Previously published items were audited when they were published.
+    sourceEvidence: i.sourceEvidence || "Previously audited against the official menu"
+  }));
+  const accepted = proposals.filter((p) => p.decision === "accepted").map((p) => ({
+    id: p.item.id || crypto.randomUUID(), name: p.item.name,
+    description: p.item.description || "", price: p.item.price,
+    dietaryStatus: p.item.dietaryStatus, modificationNote: p.item.modificationNote || null,
+    sourceEvidence: p.item.sourceEvidence
+  }));
+  // A kept item and an accepted draft can be the same dish. Keep one, preferring
+  // the freshly drafted version because its evidence is current.
+  const menuItems = [...accepted];
+  const claimed = new Set(accepted.map((i) => i.name.toLowerCase().replace(/[^a-z0-9]/g, "")));
+  for (const item of kept) {
+    if (!claimed.has(item.name.toLowerCase().replace(/[^a-z0-9]/g, ""))) menuItems.push(item);
+  }
+  if (!menuItems.length && !confirm("This will unpublish every item for " + restaurant.name + ". Continue?")) return;
+  try {
+    await api("/internal/restaurants/" + restaurant.id + "/reconcile", {
+      method: "POST",
+      body: JSON.stringify({ coverageStatus, coverageScope: restaurant.coverageScope, menuItems })
+    });
+    say("Published " + menuItems.length + " item(s) for " + restaurant.name);
+    await open(restaurant.id);
+  } catch (e) { say(e.message); }
+  refresh?.();
+}
+
+$("#connect").onclick = async () => {
+  token = $("#token").value.trim();
+  try {
+    await api("/internal/review-queue");
+    sessionStorage.setItem("vf_token", token);
+    $("#auth").style.display = "none";
+    await loadQueue();
+  } catch (e) { say(e.message); }
+};
+if (token) { $("#token").value = token; $("#connect").click(); }
+</script>
+</body>
+</html>

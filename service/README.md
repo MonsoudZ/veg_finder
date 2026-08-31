@@ -160,6 +160,32 @@ restaurant and returns the tier, the reasons, and the drafted items. When the ti
 is not configured to publish, nothing is written and the response is a draft to
 review and send back to `/reconcile`.
 
+## Reviewing drafts
+
+Anything a tier could not publish on its own is stored rather than returned and
+forgotten, so drafting and reviewing can happen days apart — which matters most
+for the model tier, where re-drafting costs money.
+
+`GET /review` serves the review page. It holds no data and no secret: it asks for
+`INTERNAL_API_TOKEN` once and fetches everything through the authenticated
+endpoints, which still return 404 without it.
+
+A reviewer sees, per restaurant, the drafts awaiting a decision — each with the
+verbatim menu line it came from — beside what is currently published. Accept or
+reject each draft, untick any published item that should go, and publish. A draft
+naming a dish that is already live is marked, so nobody re-decides settled work.
+
+Publishing sends the kept and accepted items to `/reconcile`, which is what makes
+the audit timestamp advance and clears the review. Decisions are recorded: a
+proposal can be decided once, and a later re-draft replaces what is still pending
+while leaving earlier decisions as history.
+
+| Endpoint | Purpose |
+| --- | --- |
+| `GET /internal/proposals?status=&restaurantId=` | Drafts, filterable |
+| `POST /internal/proposals/:id/decision` | `{"status":"accepted"\|"rejected","note":"…"}`; 409 if already decided |
+| `POST /internal/restaurants/:id/reconcile` | Publish the reviewed menu |
+
 ## Verification workflow
 
 1. `npm run check` fetches every official source and records a normalized SHA-256 fingerprint.

@@ -1,4 +1,7 @@
 import { createServer } from "node:http";
+import { readFileSync } from "node:fs";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { timingSafeEqual } from "node:crypto";
 import { validateMenuItems, validateRestaurant, COVERAGE_STATUSES } from "./catalog-input.js";
 import { proposeMenu } from "./proposals.js";
@@ -29,6 +32,12 @@ const server = createServer(async (request, response) => {
 });
 
 const MAX_BODY_BYTES = 1_000_000;
+const DECISION_PATH = /^\/internal\/proposals\/([0-9a-f-]{36})\/decision$/i;
+// The review page itself holds no data and no secret — it asks for the token and
+// fetches everything through the authenticated endpoints below.
+const REVIEW_PAGE = readFileSync(
+  resolve(dirname(fileURLToPath(import.meta.url)), "review.html"), "utf8"
+);
 const RECONCILE_PATH = /^\/internal\/restaurants\/([0-9a-f-]{36})\/reconcile$/i;
 const PROPOSE_PATH = /^\/internal\/restaurants\/([0-9a-f-]{36})\/propose$/i;
 
@@ -38,6 +47,11 @@ async function handleRequest(request, response) {
   if (request.method === "GET" && url.pathname === "/health") {
     await store.ping();
     return json(response, 200, { status: "ok" });
+  }
+
+  if (request.method === "GET" && url.pathname === "/review") {
+    response.writeHead(200, { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" });
+    return response.end(REVIEW_PAGE);
   }
 
   if (request.method === "GET" && url.pathname === "/v1/catalog") {
@@ -71,6 +85,31 @@ async function handleRequest(request, response) {
         restaurant: await store.getRestaurant(restaurant.value.id),
         created
       }, false);
+    }
+
+    if (request.method === "GET" && url.pathname === "/internal/proposals") {
+      return json(response, 200, {
+        proposals: await store.listProposals({
+          restaurantID: url.searchParams.get("restaurantId") ?? undefined,
+          status: url.searchParams.get("status") ?? undefined
+        })
+      }, false);
+    }
+
+    const decision = request.method === "POST" && url.pathname.match(DECISION_PATH);
+    if (decision) {
+      const body = await readJSONBody(request);
+      if (body.error) return json(response, body.status, { error: body.error }, false);
+      if (!["accepted", "rejected"].includes(body.value?.status)) {
+        return json(response, 422, { error: "status must be accepted or rejected" }, false);
+      }
+      const applied = await store.decideProposal(decision[1].toLowerCase(), {
+        status: body.value.status,
+        note: typeof body.value.note === "string" ? body.value.note.slice(0, 2_000) : null
+      });
+      // A proposal that was already decided is not silently re-decided.
+      if (!applied) return json(response, 409, { error: "Proposal is not pending" }, false);
+      return json(response, 200, { ok: true }, false);
     }
 
     const propose = request.method === "POST" && url.pathname.match(PROPOSE_PATH);
