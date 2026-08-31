@@ -2,8 +2,7 @@
 // publishing policy. Extraction proposes; this decides whether a proposal is
 // allowed to publish itself or has to wait for a person.
 
-import { createHash } from "node:crypto";
-import { validateMenuItems } from "./catalog-input.js";
+import { derivedUUID, validateMenuItems } from "./catalog-input.js";
 import { fetchSource } from "./checker.js";
 import { extractMenu, TIERS } from "./extraction.js";
 import { createExtractionClient, LLM_TIER, proposeWithModel } from "./llm-extraction.js";
@@ -174,15 +173,8 @@ function coverageScopeFor(extraction) {
 
 // A name-derived, v5-shaped UUID. Deterministic so the same dish keeps its
 // identity, and namespaced per restaurant so two restaurants can share a name.
+// The seed string is load-bearing and must not change: every published item is
+// already keyed by it, so a different input would orphan the entire catalog.
 export function stableItemID(restaurantID, name) {
-  const digest = createHash("sha256")
-    .update(`${restaurantID}:${name.trim().toLowerCase()}`)
-    .digest("hex");
-  const variant = ((parseInt(digest.slice(16, 17), 16) & 0x3) | 0x8).toString(16);
-  return [
-    digest.slice(0, 8), digest.slice(8, 12),
-    `5${digest.slice(13, 16)}`,
-    `${variant}${digest.slice(17, 20)}`,
-    digest.slice(20, 32)
-  ].join("-");
+  return derivedUUID(`${restaurantID}:${name.trim().toLowerCase()}`);
 }

@@ -9,7 +9,8 @@
     "check": "node --env-file-if-exists=.env src/check-menus.js",
     "test": "node --test",
     "propose": "node --env-file-if-exists=.env src/propose-menus.js",
-    "load-drafts": "node --env-file-if-exists=.env src/load-drafts.js"
+    "load-drafts": "node --env-file-if-exists=.env src/load-drafts.js",
+    "import-restaurants": "node --env-file-if-exists=.env src/import-restaurants.js"
   },
   "engines": {
     "node": ">=22.5"

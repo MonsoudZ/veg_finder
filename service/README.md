@@ -127,6 +127,73 @@ problem.
 
 Production uses PostgreSQL whenever `DATABASE_URL` is set. With no `DATABASE_URL`, the service uses SQLite for local development and tests. PostgreSQL retains item versions, source snapshots, and every check run; SQLite implements the same contract for zero-setup development.
 
+## Onboarding restaurants in bulk
+
+Adding restaurants one request at a time works for ten and not for a thousand,
+and hand-editing the seed is worse — the seed bootstraps an empty database, so
+editing it to add restaurants makes it a second source of truth that drifts from
+the first.
+
+```sh
+npm run import-restaurants -- data/candidates/denver.json --dry-run
+npm run import-restaurants -- data/candidates/denver.json
+npm run import-restaurants -- candidates.json --model --delay=2000
+```
+
+The file is a JSON array, or an object with a `restaurants` array. Every entry
+needs a name, neighborhood, address, coordinates, and `menuURL`; the optional
+fields are the same ones `POST /internal/restaurants` accepts.
+
+```json
+{ "restaurants": [
+  { "name": "Example Kitchen", "neighborhood": "Uptown",
+    "address": "100 E 17th Ave", "latitude": 39.7436, "longitude": -104.9781,
+    "menuURL": "https://example.com/menu", "menuProfile": "fully_vegan" }
+] }
+```
+
+Coordinates are **not** looked up. Geocoding is a separate concern with its own
+failure modes, and a silently mislocated restaurant is worse than a refused one.
+
+Each entry gets an id derived from its name and address, so **an import is safe
+to re-run**: a restaurant that already exists is left completely alone — not
+upserted, not re-fetched — because a discovery pass repeated next month must
+never overwrite a menu somebody has since audited. Two records that disagree
+about spelling import as two restaurants, which is a duplicate to merge rather
+than an audit destroyed.
+
+A malformed entry is reported with its index and skipped; an import of 200 is not
+lost because entry 87 has no longitude. A menu that will not fetch still leaves
+its restaurant onboarded and queued — a dead URL is a review task, not a reason
+to drop the record.
+
+Nothing here bypasses the publishing rules. Imported restaurants are created
+unaudited with no items, then run through the same extraction tiers as everything
+else, so only a whole-restaurant claim an operator recorded can publish without a
+person. `--model` is opt-in because it costs money, and even then the model tier
+only drafts for review.
+
+### The number this is for
+
+The summary ends with **zero-touch coverage** — how many of the restaurants just
+onboarded reached published coverage without costing anybody a decision.
+
+```
+  published with no review      1 (fully_vegan 1)
+  drafted, awaiting review      1 (labelled_menu 1)
+  no automatic reading          1
+  failed to fetch               0
+
+  Zero-touch coverage: 33% (1 of 3)
+```
+
+That ratio is the only honest estimate of how far this approach scales, and it
+cannot be guessed from a catalog audited by hand. Expanding cheapest-first —
+whole-menu vegan and vegetarian restaurants before labelled menus, labelled menus
+before everything else — is what keeps it high, because a restaurant that states
+its own whole menu is vegan costs nothing to publish while an unlabelled one
+costs a person per dish.
+
 ## Tiered extraction
 
 Auditing every menu by hand does not scale past a few hundred restaurants, so

@@ -2,6 +2,8 @@
 // the seed importer. Dietary data is the product, so bad input is rejected at the
 // boundary rather than stored and served.
 
+import { createHash } from "node:crypto";
+
 export const DIETARY_STATUSES = [
   "Vegan", "Vegetarian", "Can be made vegan", "Can be made vegetarian"
 ];
@@ -101,6 +103,37 @@ export function validateMenuItems(input) {
   });
 
   return { valid: errors.length === 0, errors, value };
+}
+
+// A v5-shaped UUID derived from a seed string. Deterministic, so the same real
+// thing keeps the same identity across runs without a registry to look it up in.
+export function derivedUUID(seed) {
+  const digest = createHash("sha256").update(seed).digest("hex");
+  const variant = ((parseInt(digest.slice(16, 17), 16) & 0x3) | 0x8).toString(16);
+  return [
+    digest.slice(0, 8), digest.slice(8, 12),
+    `5${digest.slice(13, 16)}`,
+    `${variant}${digest.slice(17, 20)}`,
+    digest.slice(20, 32)
+  ].join("-");
+}
+
+// Identity for a restaurant a discovery source produced, which arrives with no
+// id of its own. Derived from name and address together because neither is
+// unique alone: a chain repeats the name across town, and a single address
+// outlives the businesses that occupy it.
+//
+// This is what makes a bulk import safe to re-run. It is not a claim that the
+// pair is globally unique — two records that disagree about spelling or
+// formatting will import as two restaurants, which is a duplicate to merge
+// rather than an audited menu overwritten by mistake. That is the right way for
+// this to fail.
+export function stableRestaurantID(name, address) {
+  return derivedUUID(`restaurant:${collapse(name)}|${collapse(address)}`);
+}
+
+function collapse(value) {
+  return String(value ?? "").trim().toLowerCase().replace(/\s+/g, " ");
 }
 
 function requireUUID(value, field, errors) {
