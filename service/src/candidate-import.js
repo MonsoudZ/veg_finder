@@ -187,6 +187,44 @@ export function zeroTouchRatio(summary) {
   };
 }
 
+// A batch sorted into what it cost, in the unit that cost is actually paid in.
+//
+// Zero-touch coverage alone reads a batch too harshly. 30 auto-published, 40
+// awaiting review and 30 unusable is a good result if those 40 are a click each,
+// and a bad one if they are ten decisions each — but the restaurant count is
+// identical either way. A reviewer accepts or rejects *items*, so items are what
+// the middle bucket has to be measured in.
+export function reportOf(summary) {
+  const items = (entries) => entries.reduce((total, entry) => total + (entry.items ?? 0), 0);
+  const perRestaurant = summary.drafted.map((entry) => entry.items ?? 0).sort((a, b) => a - b);
+  const zeroTouch = zeroTouchRatio(summary);
+
+  return {
+    examined: zeroTouch.examined,
+    created: summary.created.length,
+    existing: summary.existing.length,
+    autoPublished: { restaurants: summary.published.length, items: items(summary.published) },
+    awaitingReview: {
+      restaurants: summary.drafted.length,
+      items: items(summary.drafted),
+      // What one restaurant actually costs a reviewer. The median says what the
+      // work feels like; the maximum says what the worst of it looks like, and a
+      // long tail of 30-item menus is the thing that quietly makes a queue
+      // unworkable.
+      medianItems: perRestaurant.length
+        ? perRestaurant[Math.floor((perRestaurant.length - 1) / 2)]
+        : 0,
+      maxItems: perRestaurant.length ? perRestaurant[perRestaurant.length - 1] : 0
+    },
+    manual: {
+      restaurants: summary.unreadable.length + summary.failed.length,
+      unreadable: summary.unreadable.length,
+      failed: summary.failed.length
+    },
+    zeroTouchRatio: zeroTouch.ratio
+  };
+}
+
 export function formatSummary(summary, { invalid = [] } = {}) {
   const zeroTouch = zeroTouchRatio(summary);
   const byTier = (entries) => {
@@ -208,11 +246,19 @@ export function formatSummary(summary, { invalid = [] } = {}) {
   if (invalid.length) lines.push("");
 
   if (zeroTouch.examined > 0) {
+    const report = reportOf(summary);
+    const pad = (n) => String(n).padStart(4);
     lines.push(
-      `  published with no review   ${String(summary.published.length).padStart(4)}${byTier(summary.published)}`,
-      `  drafted, awaiting review   ${String(summary.drafted.length).padStart(4)}${byTier(summary.drafted)}`,
-      `  no automatic reading       ${String(summary.unreadable.length).padStart(4)}`,
-      `  failed to fetch            ${String(summary.failed.length).padStart(4)}`,
+      `  auto-published   ${pad(report.autoPublished.restaurants)} restaurant(s), ` +
+        `${report.autoPublished.items} item(s)${byTier(summary.published)}`,
+      `  awaiting review  ${pad(report.awaitingReview.restaurants)} restaurant(s), ` +
+        `${report.awaitingReview.items} item(s)${byTier(summary.drafted)}`,
+      // The cost of the middle bucket, in the unit a reviewer pays it in. A
+      // batch is only as good as how much work its reviewable half is.
+      `                        ${report.awaitingReview.medianItems} item(s) for a typical one, ` +
+        `${report.awaitingReview.maxItems} for the largest`,
+      `  manual/unusable  ${pad(report.manual.restaurants)} restaurant(s) ` +
+        `(${report.manual.unreadable} unreadable, ${report.manual.failed} unfetchable)`,
       "",
       `  Zero-touch coverage: ${(zeroTouch.ratio * 100).toFixed(0)}% ` +
         `(${zeroTouch.published} of ${zeroTouch.examined})`,

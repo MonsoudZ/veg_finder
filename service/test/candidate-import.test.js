@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import {
-  formatSummary, importCandidates, readCandidates, zeroTouchRatio
+  formatSummary, importCandidates, readCandidates, reportOf, zeroTouchRatio
 } from "../src/candidate-import.js";
 import { stableRestaurantID } from "../src/catalog-input.js";
 import { openSQLiteStore } from "../src/database.js";
@@ -217,6 +217,34 @@ test("extraction sorts an import into published, drafted, and hand work", async 
   );
   assert.match(formatSummary(summary), /Zero-touch coverage: 33% \(1 of 3\)/);
   await store.close();
+});
+
+test("a batch is measured in items, because that is what a reviewer spends", async () => {
+  // Restaurant counts read a batch too harshly. Forty awaiting review is a good
+  // result at a click each and a bad one at ten decisions each, and the
+  // restaurant count is identical either way.
+  const report = reportOf({
+    created: new Array(9).fill({}), existing: [],
+    published: [{ name: "A", tier: "fully_vegan", items: 20 },
+                { name: "B", tier: "fully_vegan", items: 12 }],
+    drafted: [{ name: "C", tier: "labelled_menu", items: 2 },
+              { name: "D", tier: "labelled_menu", items: 4 },
+              { name: "E", tier: "labelled_menu", items: 32 }],
+    unreadable: [{ name: "F" }, { name: "G" }],
+    failed: [{ name: "H", reason: "ENOTFOUND" }]
+  });
+
+  assert.deepEqual(report.autoPublished, { restaurants: 2, items: 32 });
+  assert.deepEqual(report.awaitingReview, {
+    restaurants: 3, items: 38, medianItems: 4, maxItems: 32
+  });
+  assert.deepEqual(report.manual, { restaurants: 3, unreadable: 2, failed: 1 });
+  assert.equal(report.examined, 8);
+  assert.equal(report.zeroTouchRatio, 0.25);
+  // The distinction the median and maximum exist to expose: a typical review here
+  // is four items, but one restaurant costs thirty-two. A long tail like that is
+  // what quietly makes a queue unworkable, and an average would have hidden it.
+  assert.ok(report.awaitingReview.maxItems > report.awaitingReview.medianItems * 4);
 });
 
 test("a menu that cannot be fetched still leaves the restaurant onboarded", async () => {

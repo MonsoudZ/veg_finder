@@ -234,26 +234,36 @@ else, so only a whole-restaurant claim an operator recorded can publish without 
 person. `--model` is opt-in because it costs money, and even then the model tier
 only drafts for review.
 
-### The number this is for
+### The numbers this is for
 
-The summary ends with **zero-touch coverage** — how many of the restaurants just
-onboarded reached published coverage without costing anybody a decision.
+Every import sorts its batch into three buckets and measures the middle one in
+the unit human effort is actually spent in.
 
 ```
-  published with no review      1 (fully_vegan 1)
-  drafted, awaiting review      1 (labelled_menu 1)
-  no automatic reading          1
-  failed to fetch               0
+  auto-published      2 restaurant(s), 32 item(s) (fully_vegan 2)
+  awaiting review     3 restaurant(s), 38 item(s) (labelled_menu 3)
+                        4 item(s) for a typical one, 32 for the largest
+  manual/unusable     3 restaurant(s) (2 unreadable, 1 unfetchable)
 
-  Zero-touch coverage: 33% (1 of 3)
+  Zero-touch coverage: 25% (2 of 8)
 ```
 
-That ratio is the only honest estimate of how far this approach scales, and it
-cannot be guessed from a catalog audited by hand. Expanding cheapest-first —
-whole-menu vegan and vegetarian restaurants before labelled menus, labelled menus
-before everything else — is what keeps it high, because a restaurant that states
-its own whole menu is vegan costs nothing to publish while an unlabelled one
-costs a person per dish.
+Zero-touch coverage alone reads a batch too harshly. 30 auto-published, 40
+awaiting review and 30 unusable is a good result if those 40 are a click each and
+a bad one if they are ten decisions each — and the restaurant count is identical
+either way. A reviewer accepts or rejects *items*, so the middle bucket is
+counted in items, with the median and the maximum rather than an average: a long
+tail of 30-item menus is what quietly makes a queue unworkable, and a mean hides
+it.
+
+`--report=<file.json>` writes the same figures as data. A batch is only
+interpretable next to the ones before it — the real question is whether the ratio
+holds as discovery moves out of the neighbourhood it was tuned on.
+
+Expanding cheapest-first — whole-menu vegan and vegetarian restaurants before
+labelled menus, labelled menus before everything else — is what keeps the ratio
+high, because a restaurant that states its own whole menu is vegan costs nothing
+to publish while an unlabelled one costs a person per dish.
 
 ## Tiered extraction
 
