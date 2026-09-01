@@ -122,3 +122,54 @@ test("a restaurant's own menu still wins over a parent brand's", () => {
 
   assert.equal(found.url, "https://example.com/menu");
 });
+
+test("a menu page that only links to PDFs resolves to the document", async () => {
+  // Found in the wild. A restaurant's "Menu" page held fifty lines of navigation
+  // and four PDFs. Stopping at the landing page records a URL that fingerprints
+  // perfectly and never contains a dish, so the restaurant sits in the catalog
+  // looking checked and holding nothing.
+  const pages = {
+    "https://example.com/": '<a href="/mainmenu">Menu</a>',
+    "https://example.com/mainmenu": `
+      <a href="/s/Summer-Menu-2026.pdf">lunch and dinner menu</a>
+      <a href="/s/Brunch-Menu-Summer.pdf">brunch menu</a>
+      <a href="/about">About</a>`
+  };
+  const found = await resolveMenuURL("https://example.com/", {
+    fetchImpl: async (url) => new Response(pages[url] ?? "", { status: pages[url] ? 200 : 404 })
+  });
+
+  assert.equal(found.url, "https://example.com/s/Summer-Menu-2026.pdf");
+  assert.equal(found.verificationMethod, "menu_document", "its dishes need a person");
+  assert.equal(found.landingPage, "https://example.com/mainmenu");
+  assert.equal(found.documents.length, 2);
+});
+
+test("a menu page with dishes on it is not traded for a downloadable copy", async () => {
+  // Plenty of sites offer a PDF beside a perfectly readable menu. The readable
+  // one is worth more: it extracts, and the document would need transcribing.
+  const pages = {
+    "https://example.com/": '<a href="/menu">Menu</a>',
+    "https://example.com/menu": `
+      <a href="/s/print-menu.pdf">printable menu</a>
+      <li>Roasted Cauliflower (VG)</li><li>$11</li>
+      <li>Halloumi Skewers (V)</li><li>$13</li>
+      <li>Charred Broccoli (VG)</li><li>$12</li>`
+  };
+  const found = await resolveMenuURL("https://example.com/", {
+    fetchImpl: async (url) => new Response(pages[url] ?? "", { status: pages[url] ? 200 : 404 })
+  });
+
+  assert.equal(found.url, "https://example.com/menu");
+  assert.equal(found.verificationMethod, undefined);
+});
+
+test("an unreachable second hop keeps the menu page it already found", async () => {
+  const found = await resolveMenuURL("https://example.com/", {
+    fetchImpl: async (url) => url.endsWith("/menu")
+      ? new Response("", { status: 500 })
+      : new Response('<a href="/menu">Menu</a>')
+  });
+
+  assert.equal(found.url, "https://example.com/menu", "a failed hop must not lose the first answer");
+});

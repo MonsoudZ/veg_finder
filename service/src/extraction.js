@@ -108,6 +108,8 @@ export function extractMenu(html, { menuProfile = "unknown", claimHTML = null } 
     return linked ? { quote: linked, source: "linked claim page" } : null;
   };
 
+  // Judged once for the whole page, then honoured by every tier below.
+  const barePrices = usesBarePrices(blocks);
   const legend = readLegend(page);
   const operatorSaysVegan = menuProfile === TIERS.FULLY_VEGAN;
   const veganClaim = claimFor(WHOLLY_VEGAN_CLAIM);
@@ -124,7 +126,7 @@ export function extractMenu(html, { menuProfile = "unknown", claimHTML = null } 
       claim: veganClaim,
       legend: null,
       reasons,
-      items: collectItems(blocks, () => ({ dietaryStatus: "Vegan" }))
+      items: collectItems(blocks, () => ({ dietaryStatus: "Vegan" }), { barePrices })
     };
   }
 
@@ -145,7 +147,7 @@ export function extractMenu(html, { menuProfile = "unknown", claimHTML = null } 
       legend: null,
       reasons,
       // Meat-free, but the cheese is real cheese.
-      items: collectItems(blocks, () => ({ dietaryStatus: "Vegetarian" }))
+      items: collectItems(blocks, () => ({ dietaryStatus: "Vegetarian" }), { barePrices })
     };
   }
 
@@ -175,7 +177,7 @@ export function extractMenu(html, { menuProfile = "unknown", claimHTML = null } 
       // The change itself is never guessed here.
       if (CONDITIONAL.test(block)) return null;
       return { dietaryStatus: meaning === "vegan" ? "Vegan" : "Vegetarian" };
-    });
+    }, { barePrices });
     if (items.length > 0) {
       return { tier: TIERS.LABELLED_MENU, assertedBy: "menu-legend", legend, reasons, items };
     }
@@ -190,6 +192,61 @@ export function extractMenu(html, { menuProfile = "unknown", claimHTML = null } 
 const UNIT_OF_SALE =
   /^(ea|each|per|pp|lb|lbs|oz|g|kg|ct|pc|pcs|dz|doz|dozen|slice|slices|serving|servings)\b\.?$/i;
 
+// A price written with no currency symbol and no decimals, alone on its line and
+// optionally preceded by allergen or dietary codes: "12", "g/f 8",
+// "g/f | c/s | c/n 11".
+//
+// On its own a bare number is not evidence of anything — it is a year, a count,
+// a street number, a phone fragment. What makes it a price is the company it
+// keeps, which is why nothing below reads this pattern without first proving the
+// page repeats it. See usesBarePrices.
+const BARE_PRICE_LINE = /^(?:[a-z]{1,3}(?:\s*[|/,]\s*[a-z]{1,3})*\s+)?(\d{1,3}(?:\.\d{2})?)$/i;
+
+// The sentence under a dish. Long enough and wordy enough not to be another dish
+// name, which is what separates a description from the next item on the menu.
+function looksLikeDescription(line) {
+  if (typeof line !== "string") return false;
+  const text = line.trim();
+  if (text.length < 25 || text.length > 400) return false;
+  if (BARE_PRICE_LINE.test(text)) return false;
+  return (text.match(/\s/g) ?? []).length >= 3 && /[a-z]{3}/.test(text);
+}
+
+// Whether this page prices its dishes as bare numbers in a repeating
+// name / price / description layout.
+//
+// This is a page-level judgement on purpose. Accepting a bare number as a price
+// wherever one appears would turn every year, quantity and street number on the
+// page into a dish. Accepting it only where the same three-line shape occurs
+// several times means the layout itself is the evidence: one "12" proves
+// nothing, but a page that puts a name, then a number, then a sentence, over and
+// over, is a menu written that way.
+const BARE_PRICE_LAYOUT_THRESHOLD = 3;
+
+// Whether this page carries a menu at all, independent of whether anything on it
+// is labelled. Distinguishes a page listing dishes from one that only links to
+// them — a landing page whose menus are PDFs reads as a perfectly good menu URL
+// and contains no food, which is how a restaurant ends up published with an
+// empty menu and nobody noticing.
+export function hasDishContent(html) {
+  const blocks = textBlocks(html);
+  const priced = blocks.filter((block) => PRICE.test(block)).length;
+  return priced >= 3 || usesBarePrices(blocks);
+}
+
+function usesBarePrices(blocks) {
+  let triples = 0;
+  for (const [index, block] of blocks.entries()) {
+    if (!BARE_PRICE_LINE.test(block)) continue;
+    const name = readName(blocks[index - 1] ?? "");
+    if (!name || !isDishName(name)) continue;
+    if (!looksLikeDescription(blocks[index + 1])) continue;
+    triples += 1;
+    if (triples >= BARE_PRICE_LAYOUT_THRESHOLD) return true;
+  }
+  return false;
+}
+
 // Counts letters rather than looking for three in a row: "B.L.A.T" is a real
 // sandwich and has no run of three, while the "ea" left behind by a "$6.00 ea."
 // price line has only two letters in total.
@@ -197,7 +254,7 @@ function isDishName(name) {
   return (name.match(/[A-Za-z]/g) ?? []).length >= 3 && !UNIT_OF_SALE.test(name);
 }
 
-function collectItems(blocks, classify) {
+function collectItems(blocks, classify, { barePrices = false } = {}) {
   const items = [];
   const seen = new Set();
 
@@ -211,7 +268,8 @@ function collectItems(blocks, classify) {
     const inline = block.match(PRICE);
     const price = inline
       ? inline[0].replace(/\s+/g, "")
-      : priceOnFollowingLine(blocks[index + 1]);
+      : priceOnFollowingLine(blocks[index + 1])
+        ?? (barePrices ? barePriceOnFollowingLine(blocks[index + 1]) : null);
     if (!price) continue;
 
     const name = readName(block);
@@ -225,10 +283,19 @@ function collectItems(blocks, classify) {
     if (seen.has(key)) continue;
     seen.add(key);
 
+    // Only read where the layout has already proven itself. In the repeating
+    // name / price / description shape the third line is the description by
+    // construction; anywhere else, the line under a dish is as likely to be the
+    // next dish, and a neighbouring item's words attached to this one would be
+    // read by a diner as this dish's ingredients.
+    const priceIndex = inline ? index : index + 1;
+    const following = blocks[priceIndex + 1];
+    const description = barePrices && looksLikeDescription(following) ? following : "";
+
     items.push({
       name,
       price,
-      description: "",
+      description,
       dietaryStatus: decision.dietaryStatus,
       modificationNote: null,
       // The exact line the claim came from, so a reviewer can check it without
@@ -293,6 +360,14 @@ const SIZE_WORDS = new Set([
   "md", "medium", "lg", "large", "reg", "regular", "oz", "pc", "pcs", "piece",
   "slice", "single", "double", "or", "and", "per", "add", "gf", "v", "vg"
 ]);
+
+// Only ever called once the page has proven it uses this layout; on its own the
+// pattern would match a year or a house number.
+function barePriceOnFollowingLine(next) {
+  if (typeof next !== "string") return null;
+  const match = next.trim().match(BARE_PRICE_LINE);
+  return match ? match[1] : null;
+}
 
 function priceOnFollowingLine(next) {
   if (!next || next.length > MAX_PRICE_LINE_LENGTH) return null;

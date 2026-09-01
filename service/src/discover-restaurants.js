@@ -76,6 +76,12 @@ if (!has("no-menus")) {
       candidate.menuURL = menu.url;
       candidate.discovery.menuConfidence = menu.score;
       if (menu.likelyDocument) candidate.discovery.likelyDocument = true;
+      // The menu turned out to be a document behind a landing page. Its dishes
+      // need transcribing by a person, and the catalog has a verification method
+      // that says exactly that while still fingerprinting the file every cycle.
+      if (menu.verificationMethod) candidate.verificationMethod = menu.verificationMethod;
+      if (menu.landingPage) candidate.discovery.landingPage = menu.landingPage;
+      if (menu.documents?.length > 1) candidate.discovery.otherDocuments = menu.documents.slice(1);
       // A JavaScript ordering platform serves an empty page to a plain fetch.
       // This is a fact about how to retrieve the source, not a claim about what
       // is on it, so setting it costs nothing if the guess is wrong.

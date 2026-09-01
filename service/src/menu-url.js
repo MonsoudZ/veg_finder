@@ -11,6 +11,8 @@
 // the word alone points at a UI control roughly as often as at food, so the
 // interface senses are scored *down* rather than merely not scored up.
 
+import { hasDishContent } from "./extraction.js";
+
 // Ordering platforms that render their menu with JavaScript. The catalog already
 // knows how to fetch these through a headless browser; naming them here lets an
 // operator set extractionMode without discovering the empty page first.
@@ -104,26 +106,83 @@ export function findMenuURL(html, pageURL) {
   return { ...best, alternatives: scored.slice(1, 4).map((entry) => entry.url) };
 }
 
+// A link to a menu that is a document rather than a page. Its dishes cannot be
+// read as text, but its bytes fingerprint, which is exactly what the catalog's
+// menu_document verification method is for.
+const DOCUMENT_LINK = /\.(pdf|jpe?g|png|webp)(\?|$)/i;
+
 // Fetches a homepage and looks for its menu. Never throws: a site that is down,
 // slow, or hostile to robots is a candidate for a person to finish, not a reason
 // to lose the whole discovery run.
-export async function resolveMenuURL(website, { fetchImpl = fetch, timeoutMs = 15_000 } = {}) {
+export async function resolveMenuURL(website, {
+  fetchImpl = fetch, timeoutMs = 15_000, followDocuments = true
+} = {}) {
+  const home = await load(website, fetchImpl, timeoutMs);
+  if (home.error) return { url: null, reason: home.error };
+
+  const found = findMenuURL(home.text, home.url);
+  if (!found) return { url: null, reason: "no menu link found on the homepage" };
+  // findMenuURL returns a url-less result with its own reason when the only
+  // candidate belonged to another brand. Keeping that reason matters: "we found
+  // a menu and refused it" is a different job for a person than "there was
+  // nothing here".
+  if (!found.url) return found;
+  if (!followDocuments || found.likelyDocument) return { ...found, reason: null };
+
+  // One more hop, and only one. Plenty of restaurants publish a page called
+  // "Menu" whose entire content is links to PDFs — found in the wild on a
+  // restaurant whose four menus were all documents behind a landing page with
+  // fifty lines of navigation and no food. Stopping at the landing page records
+  // a menu URL that fingerprints perfectly and never contains a dish, so the
+  // restaurant sits in the catalog looking checked and holding nothing.
+  const page = await load(found.url, fetchImpl, timeoutMs);
+  if (page.error || hasDishContent(page.text)) return { ...found, reason: null };
+
+  const documents = menuDocuments(page.text, page.url);
+  if (documents.length === 0) return { ...found, reason: null };
+
+  return {
+    ...found,
+    url: documents[0],
+    likelyDocument: true,
+    // Its dishes have to be transcribed by a person, and its bytes are still
+    // fingerprinted every cycle, so an edit to it is caught.
+    verificationMethod: "menu_document",
+    landingPage: found.url,
+    documents,
+    reason: null
+  };
+}
+
+// Menu documents linked from a page, best first. A restaurant with four PDFs has
+// a main one and three others; the shortest menu-ish name is the usual winner
+// ("Dinner-Menu.pdf" over "Happy-Hour-6-x-85-in.pdf").
+function menuDocuments(html, pageURL) {
+  const base = safeURL(pageURL);
+  if (!base) return [];
+  const found = [];
+  for (const match of String(html ?? "").matchAll(LINK)) {
+    const target = resolve(match[1], base);
+    if (!target || !DOCUMENT_LINK.test(target.pathname)) continue;
+    const text = stripTags(match[2]);
+    // The word has to appear somewhere, or a press photo becomes the menu.
+    if (!MENU_WORD.test(`${text} ${decodeURIComponent(target.pathname)}`)) continue;
+    if (!found.includes(target.toString())) found.push(target.toString());
+  }
+  return found.sort((a, b) => a.length - b.length);
+}
+
+async function load(url, fetchImpl, timeoutMs) {
   try {
-    const response = await fetchImpl(website, {
+    const response = await fetchImpl(url, {
       headers: { "user-agent": "VegFinderDiscovery/0.1 (+restaurant catalog research)" },
       redirect: "follow",
       signal: AbortSignal.timeout(timeoutMs)
     });
-    if (!response.ok) return { url: null, reason: `HTTP ${response.status}` };
-    const found = findMenuURL(await response.text(), response.url || website);
-    if (!found) return { url: null, reason: "no menu link found on the homepage" };
-    // findMenuURL returns a url-less result with its own reason when the only
-    // candidate belonged to another brand. Keeping that reason matters: "we
-    // found a menu and refused it" is a different job for a person than "there
-    // was nothing here".
-    return found.url ? { ...found, reason: null } : found;
+    if (!response.ok) return { error: `HTTP ${response.status}` };
+    return { text: await response.text(), url: response.url || url };
   } catch (error) {
-    return { url: null, reason: String(error.message ?? error) };
+    return { error: String(error.message ?? error) };
   }
 }
 

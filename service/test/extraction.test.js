@@ -447,3 +447,59 @@ test("a zero-padded numeric entity is decoded like its unpadded twin", () => {
   assert.match(result.reasons[0], /Angie's Vegan Bakery/);
   assert.ok(!result.reasons[0].includes("&#"), "no undecoded entity reaches a published quote");
 });
+
+// A menu that prices its dishes as bare numbers, in the repeating
+// name / price / description shape found on a real Denver vegan restaurant's
+// page. Before this was recognised the page yielded nothing at all.
+const BARE_PRICE_MENU = `<html><body>
+  <p>100% vegan kitchen</p>
+  <div><h3>Hand Cut Fries</h3><p>g/f 8</p><p>Crisped idaho potatoes tossed in sour cream powder and herbs</p></div>
+  <div><h3>Carrot Sticks</h3><p>g/f | c/s | c/n 11</p><p>Roasted carrots tossed in tangy buffalo sauce with dill</p></div>
+  <div><h3>Garlic Bread</h3><p>12</p><p>Thick sliced ciabatta toasted in herbed butter and roasted garlic</p></div>
+  <div><h3>Charred Caesar</h3><p>13</p><p>Charred cabbage and escarole tossed with black garlic dressing</p></div>
+</body></html>`;
+
+test("a menu priced in bare numbers is read once the layout repeats", () => {
+  const result = extractMenu(BARE_PRICE_MENU);
+
+  assert.equal(result.tier, "fully_vegan");
+  assert.deepEqual(
+    result.items.map((item) => [item.name, item.price]),
+    [["Hand Cut Fries", "8"], ["Carrot Sticks", "11"],
+     ["Garlic Bread", "12"], ["Charred Caesar", "13"]],
+    "allergen codes ahead of the number are not part of the price"
+  );
+  assert.match(
+    result.items[0].description, /^Crisped idaho potatoes/,
+    "in this layout the third line is the description by construction"
+  );
+});
+
+test("a stray number is not a price without the layout to vouch for it", () => {
+  // The whole risk of reading bare numbers. Years, counts and street numbers sit
+  // under headings on every page on the web; only the repetition makes one a price.
+  const notAMenu = `<html><body>
+    <p>100% vegan kitchen</p>
+    <div><h3>Our Story</h3><p>2014</p><p>We opened our doors in a converted garage on Colfax Avenue</p></div>
+    <div><h3>Find Us</h3><p>837</p><p>East 17th Avenue, Denver, Colorado, open seven days a week</p></div>
+  </body></html>`;
+
+  assert.deepEqual(
+    extractMenu(notAMenu).items, [],
+    "two lookalikes are not a menu, and neither is a dish"
+  );
+});
+
+test("bare prices stay unread on a menu that never establishes the layout", () => {
+  const oneOff = `<html><body>
+    <p>100% vegan kitchen</p>
+    <div><h3>Hand Cut Fries</h3><p>8</p><p>Crisped idaho potatoes tossed in sour cream powder and herbs</p></div>
+    <li>Roasted Cauliflower</li><li>$11</li>
+  </body></html>`;
+  const result = extractMenu(oneOff);
+
+  assert.deepEqual(
+    result.items.map((item) => item.name), ["Roasted Cauliflower"],
+    "a single bare-priced dish is below the threshold, so only the priced one is read"
+  );
+});
