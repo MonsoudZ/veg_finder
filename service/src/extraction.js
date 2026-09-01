@@ -247,11 +247,24 @@ function usesBarePrices(blocks) {
   return false;
 }
 
+// The sentences menus print beside their prices: what a dish is served with,
+// what may be substituted, what the surcharge is. They sit in the same position
+// as a dish and carry a price, so nothing above distinguishes them — and on a
+// whole-menu-claim tier they publish with no human in the way. Found in the
+// wild: "Served with steamed rice | Substitutions: Brown Rice | Bamboo Rice"
+// reached a diner as an orderable dish.
+const NOTE_LINE = /^(served|substitutions?|add|choice|includes?|comes|please|all|gratuity|consuming)\b/i;
+
 // Counts letters rather than looking for three in a row: "B.L.A.T" is a real
 // sandwich and has no run of three, while the "ea" left behind by a "$6.00 ea."
 // price line has only two letters in total.
 function isDishName(name) {
-  return (name.match(/[A-Za-z]/g) ?? []).length >= 3 && !UNIT_OF_SALE.test(name);
+  if ((name.match(/[A-Za-z]/g) ?? []).length < 3) return false;
+  if (UNIT_OF_SALE.test(name)) return false;
+  if (NOTE_LINE.test(name)) return false;
+  // A pipe separates options or notes; a dish name does not contain one. And a
+  // name past eight words has stopped naming a thing and started describing it.
+  return !name.includes("|") && name.split(/\s+/).length <= 8;
 }
 
 function collectItems(blocks, classify, { barePrices = false } = {}) {

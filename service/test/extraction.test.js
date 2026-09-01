@@ -503,3 +503,33 @@ test("bare prices stay unread on a menu that never establishes the layout", () =
     "a single bare-priced dish is below the threshold, so only the priced one is read"
   );
 });
+
+test("a serving note beside a price is not an orderable dish", () => {
+  // Found in the wild on a wholly-vegan menu, where this tier publishes with no
+  // human in the way: "Served with steamed rice | Substitutions: Brown Rice"
+  // reached a diner as something to order. Notes sit where dishes sit and carry
+  // prices, so position and price cannot tell them apart.
+  const menu = `<html><body>
+    <p>We are a 100% vegan restaurant</p>
+    <li>Orange Chickin' Bowl</li><li>$14.99</li>
+    <li>Served with steamed rice | Substitutions: Brown Rice | Bamboo Rice</li><li>$1.50</li>
+    <li>Add avocado to any bowl for</li><li>$2.00</li>
+    <li>Kung Pao Tofu</li><li>$13.99</li>
+  </body></html>`;
+
+  assert.deepEqual(
+    extractMenu(menu).items.map((item) => item.name),
+    ["Orange Chickin' Bowl", "Kung Pao Tofu"]
+  );
+});
+
+test("a long but genuine dish name is still a dish", () => {
+  const menu = `<html><body>
+    <p>We are a 100% vegan restaurant</p>
+    <li>Sweet & Spicy Katsu Burger</li><li>$12.99</li>
+    <li>Salt & Pepper Chickin' Wings</li><li>$12.99</li>
+    <li>Black Pepper Mushrooms (3 bao)</li><li>$12.99</li>
+  </body></html>`;
+
+  assert.equal(extractMenu(menu).items.length, 3, "the guard must not eat real menus");
+});
