@@ -153,7 +153,8 @@ export class PostgresStore {
           id: item.id,
           name: item.name,
           description: item.description,
-          price: item.price,
+          price: item.price ?? null,
+          priceStatus: item.price == null ? "unavailable" : "listed",
           dietaryStatus: item.dietary_status,
           modificationNote: item.modification_note
         }))
@@ -823,7 +824,11 @@ function publicRestaurant(row, items) {
       id: item.id,
       name: item.name,
       description: item.description,
-      price: item.price,
+      price: item.price ?? null,
+      // Derived rather than stored, so the two can never disagree. Absent means
+      // this menu does not publish one, which is a fact worth stating to a diner
+      // instead of showing an empty gap.
+      priceStatus: item.price == null ? "unavailable" : "listed",
       dietaryStatus: item.dietary_status,
       modificationNote: item.modification_note
     }))

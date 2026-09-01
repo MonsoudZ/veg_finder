@@ -295,3 +295,36 @@ test("the sync watermark is the newest record seen, not the last one listed", as
   assert.equal(after.restaurants.length, 0);
   await store.close();
 });
+
+test("a dish with no price is published and says so, rather than being dropped", async () => {
+  // A document menu transcribed by a person often yields readable dishes whose
+  // prices are unrecoverable. Requiring a price meant inventing one or losing
+  // the dish, and a missing price endangers nobody.
+  const store = freshStore("no-price");
+  await store.upsertRestaurant(validateRestaurant(restaurantInput()).value);
+  const items = validateMenuItems([
+    menuItem({ name: "Transcribed Bowl", price: null }),
+    menuItem({ id: "cccccccc-0000-4000-8000-000000000002", name: "Priced Bowl", price: "$12" })
+  ]);
+  assert.deepEqual(items.errors, [], "an absent price is not an input error");
+
+  await store.reconcileRestaurant(restaurantInput().id, {
+    coverageStatus: "Complete", menuItems: items.value
+  });
+
+  const [restaurant] = (await store.getCatalogPage({})).restaurants;
+  const byName = Object.fromEntries(restaurant.menuItems.map((i) => [i.name, i]));
+  assert.equal(byName["Transcribed Bowl"].price, null);
+  assert.equal(byName["Transcribed Bowl"].priceStatus, "unavailable");
+  assert.equal(byName["Priced Bowl"].price, "$12");
+  assert.equal(byName["Priced Bowl"].priceStatus, "listed");
+  await store.close();
+});
+
+test("an empty price is the same absence as a missing one", async () => {
+  // Stored as "" it renders in the app as a blank gap, which reads as a bug
+  // rather than as a fact about the menu.
+  const items = validateMenuItems([menuItem({ price: "   " })]);
+  assert.deepEqual(items.errors, []);
+  assert.equal(items.value[0].price, null);
+});

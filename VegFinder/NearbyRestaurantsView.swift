@@ -259,9 +259,14 @@ private struct RestaurantCard: View {
                             .font(.subheadline)
                             .lineLimit(1)
                         Spacer(minLength: 4)
-                        Text(item.price)
-                            .font(.subheadline.monospacedDigit())
-                            .foregroundStyle(.secondary)
+                        // Simply absent in a three-line preview, where spelling
+                        // out that a menu publishes no price would crowd the
+                        // dish name it sits beside. The detail view says it.
+                        if let price = item.price {
+                            Text(price)
+                                .font(.subheadline.monospacedDigit())
+                                .foregroundStyle(.secondary)
+                        }
                     }
                 }
 

@@ -46,7 +46,9 @@ function migrate(database) {
       restaurant_id TEXT NOT NULL REFERENCES restaurants(id) ON DELETE CASCADE,
       name TEXT NOT NULL,
       description TEXT NOT NULL,
-      price TEXT NOT NULL,
+      -- Nullable: see migrations/011. A menu that publishes no price is a fact
+      -- about the menu, not a missing field.
+      price TEXT,
       dietary_status TEXT NOT NULL CHECK (
         dietary_status IN ('Vegan', 'Vegetarian', 'Can be made vegan', 'Can be made vegetarian')
       ),
@@ -197,6 +199,27 @@ function migrate(database) {
     // one of those has no recorded transition and says so, rather than guessing.
     database.exec("ALTER TABLE menu_check_runs ADD COLUMN previous_source_hash TEXT");
   }
+  // Older development databases declared price NOT NULL. SQLite cannot drop a
+  // constraint, so the table is rebuilt once — the same treatment restaurants
+  // got when menu_url stopped being required.
+  const priceColumn = database.prepare("PRAGMA table_info(menu_items)").all()
+    .find((column) => column.name === "price");
+  if (priceColumn?.notnull === 1) {
+    const legacyColumns = database.prepare("PRAGMA table_info(menu_items)").all()
+      .map((column) => column.name);
+    database.exec("PRAGMA foreign_keys = OFF");
+    database.exec("ALTER TABLE menu_items RENAME TO menu_items_legacy");
+    migrate(database);
+    const carried = database.prepare("PRAGMA table_info(menu_items)").all()
+      .map((column) => column.name)
+      .filter((column) => legacyColumns.includes(column))
+      .join(", ");
+    database.exec(`INSERT INTO menu_items (${carried}) SELECT ${carried} FROM menu_items_legacy`);
+    database.exec("DROP TABLE menu_items_legacy");
+    database.exec("PRAGMA foreign_keys = ON");
+    return;
+  }
+
   const itemColumns = new Set(database.prepare("PRAGMA table_info(menu_items)").all().map((column) => column.name));
   if (!itemColumns.has("last_verified_at")) {
     database.exec("ALTER TABLE menu_items ADD COLUMN last_verified_at TEXT");
@@ -428,7 +451,11 @@ export function publicRestaurant(row, items) {
       id: item.id,
       name: item.name,
       description: item.description,
-      price: item.price,
+      price: item.price ?? null,
+      // Derived rather than stored, so the two can never disagree. Absent means
+      // this menu does not publish one, which is a fact worth stating to a diner
+      // instead of showing an empty gap.
+      priceStatus: item.price == null ? "unavailable" : "listed",
       dietaryStatus: item.dietary_status,
       modificationNote: item.modification_note
     }))
@@ -469,7 +496,8 @@ export function catalogFromDatabase(database) {
         id: item.id,
         name: item.name,
         description: item.description,
-        price: item.price,
+        price: item.price ?? null,
+        priceStatus: item.price == null ? "unavailable" : "listed",
         dietaryStatus: item.dietary_status,
         modificationNote: item.modification_note
       }))

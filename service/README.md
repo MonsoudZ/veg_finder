@@ -14,6 +14,19 @@ pages. Dietary status is one of:
 
 Modified items must include `modificationNote`. Each database item also stores source evidence, although evidence is not exposed in the public response yet.
 
+`price` is nullable, and every item carries a `priceStatus` of `listed` or
+`unavailable` derived from it, so a client never has to infer meaning from an
+absent field. Plenty of menus publish no price, and a missing one endangers
+nobody — dropping those dishes would cut coverage for no dietary-safety reason.
+It matters most for a document menu: Hudson Hill's PDF has no usable text layer,
+so a person transcribes it and can read the dishes perfectly well while most of
+the prices are unrecoverable. The app shows "No price listed" on the dish and
+omits it from dense preview rows.
+
+Price still does a second job inside extraction, where it is one of the signals
+that a line is a real dish rather than a heading. That use is separate from this
+one; see **Prices written without a currency symbol** below.
+
 ### Query modes
 
 Every response is `{ generatedAt, syncedAt, restaurants, nextCursor }`.
@@ -175,6 +188,23 @@ PDF menus are found and flagged. Links to JavaScript ordering platforms (Toast,
 Square, Popmenu, and similar) set `extractionMode: browser_required`, which is a
 fact about how to fetch the page rather than a claim about what is on it.
 
+**A menu on a third domain is never accepted.** Found in the wild: a restaurant
+tagged `diet:vegan=only` linked from its own site to its franchise owner's menu,
+which belongs to a hot dog chain — 13 chicken, 12 beef, 9 sausage. The link is
+indistinguishable from a correct one by score alone; it reads "Menu" and points
+at `/menu/`. So the trust order is same domain, then a known ordering platform,
+then nothing: a third-party domain is offered to a person as an alternative and
+the restaurant is reported as needing a menu URL by hand.
+
+**Resolution takes one further hop** when the page it found holds no dishes.
+Plenty of restaurants publish a page called "Menu" whose entire content is links
+to PDFs — one Denver restaurant's had fifty lines of navigation and four
+documents. Stopping there records a URL that fingerprints perfectly and never
+contains a dish, so the restaurant sits in the catalog looking checked and
+holding nothing. Those resolve to the document with
+`verificationMethod: menu_document`. A page that *does* have dishes is never
+traded for a downloadable copy of itself.
+
 On a Capitol Hill slice this found menu pages for 6 of 8 sites, and the four that
 overlapped the hand-audited seed matched its verified URL exactly. Roughly 40% of
 OSM restaurants there record no website at all, which is the real ceiling on this
@@ -329,6 +359,24 @@ confirms it is looking at the restaurant's own words. If the claim page stops
 resolving, the restaurant falls back to whatever its menu says alone — less
 coverage, never a wrong claim — and the failure is reported rather than being
 indistinguishable from a restaurant that never made a claim.
+
+### Prices written without a currency symbol
+
+Some menus print prices as bare numbers — `8`, `g/f 8`, `g/f | c/s | c/n 11`. A
+bare number proves nothing on its own: it is a year, a count, a street number.
+What makes it a price is the company it keeps.
+
+So it is read only where the page repeats a **name / price / description** shape
+at least three times. The layout is the evidence, not the number. In that shape
+the third line is the description by construction, so descriptions are captured
+too — everywhere else, the line under a dish is as likely to be the next dish,
+and a neighbouring item's words attached to this one would be read by a diner as
+this dish's ingredients.
+
+Found on a Denver vegan restaurant whose page yielded nothing at all and now
+yields fifteen dishes with names, prices and descriptions. It loosens nothing
+about what may publish: a page with no whole-menu claim and no legend still
+yields no items, whatever its prices look like.
 
 ### Sources that cannot be read as text
 

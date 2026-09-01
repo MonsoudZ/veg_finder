@@ -53,7 +53,11 @@ struct MenuItem: Identifiable, Codable, Hashable {
     let id: UUID
     let name: String
     let description: String
-    let price: String
+    // Optional because plenty of menus publish no price, and a document menu
+    // transcribed by a person often yields readable dishes whose prices are not
+    // recoverable. A missing price endangers nobody; hiding the dish would cost
+    // somebody a meal they could have eaten.
+    let price: String?
     let dietaryStatus: DietaryStatus
     let modificationNote: String?
 
@@ -61,7 +65,7 @@ struct MenuItem: Identifiable, Codable, Hashable {
         id: UUID = UUID(),
         name: String,
         description: String,
-        price: String,
+        price: String? = nil,
         dietaryStatus: DietaryStatus,
         modificationNote: String? = nil
     ) {

@@ -94,7 +94,12 @@ export function validateMenuItems(input) {
       id,
       name: requireText(item?.name, `${at}.name`, errors, 200),
       description: typeof item?.description === "string" ? item.description.trim() : "",
-      price: requireText(item?.price, `${at}.price`, errors, 60),
+      // Optional, because plenty of menus do not publish one and a missing price
+      // endangers nobody. Blocking those dishes would cut coverage for no
+      // dietary-safety reason — and it is the common case for a document menu,
+      // where a person transcribing a PDF can often read the dishes perfectly
+      // well while the prices are unrecoverable.
+      price: optionalText(item?.price, `${at}.price`, errors, 60),
       dietaryStatus,
       modificationNote: note || null,
       // Every published claim must be traceable to something on the official menu.
@@ -142,6 +147,14 @@ function requireUUID(value, field, errors) {
     return null;
   }
   return value.toLowerCase();
+}
+
+// Absent and empty both mean "this menu does not publish one". An empty string
+// stored as a price renders as a blank gap in the app, which reads as a bug
+// rather than as a fact about the menu.
+function optionalText(value, field, errors, maxLength) {
+  if (value == null || (typeof value === "string" && !value.trim())) return null;
+  return requireText(value, field, errors, maxLength);
 }
 
 function requireText(value, field, errors, maxLength) {

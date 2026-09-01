@@ -26,9 +26,16 @@ struct RestaurantDetailView: View {
                             Text(item.name)
                                 .font(.headline)
                             Spacer()
-                            Text(item.price)
+                            // Said plainly rather than left blank. A gap where a
+                            // price should be reads as a bug; "no price listed"
+                            // is a fact about the menu, and the dish is still
+                            // worth showing to somebody deciding where to eat.
+                            Text(item.price ?? "No price listed")
                                 .font(.subheadline.monospacedDigit())
                                 .foregroundStyle(.secondary)
+                                .accessibilityLabel(
+                                    item.price.map { "Price \($0)" } ?? "No price listed"
+                                )
                         }
                         Text(item.description)
                             .font(.subheadline)
